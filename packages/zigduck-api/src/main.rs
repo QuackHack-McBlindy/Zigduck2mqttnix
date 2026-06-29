@@ -74,11 +74,11 @@ fn handle_transcode_video_stream(url: &str, stream: &mut std::net::TcpStream) ->
 
 // 🦆 says ⮞ Password authentication function
 fn check_password_auth(headers: &HashMap<String, String>, query: &str) -> bool {
-    let password_file_path = match std::env::var("YO_API_PASSWORD_FILE") {
+    let password_file_path = match std::env::var("API_PASSWORD_FILE") {
         Ok(path) => path,
         Err(_) => {
-            log("YO_API_PASSWORD_FILE not set, authentication failed");
-            return false;  // deny access if env var missing
+            log("API_PASSWORD_FILE not set, authentication failed");
+            return false;
         }
     };
 
@@ -1411,7 +1411,7 @@ fn main() {
     log("  Use: Authorization: Bearer <password> header");
     log("  Or:  X-API-Key: <password> header");
     log("  Or:  ?password=<password> query parameter");
-    log("  Password is read from YO_API_PASSWORD_FILE environment variable");
+    log("  Password is read from API_PASSWORD_FILE environment variable");
     log("Press Ctrl+C to stop");
 
     for stream in listener.incoming() {

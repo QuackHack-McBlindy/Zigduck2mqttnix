@@ -531,12 +531,11 @@ in {
         };
       };
 
-
       systemd.services.zigduck-api = {
         description = "Zigduck API Service";
         after = [ "network.target" "zigduck.service" ];
         wantedBy = [ "multi-user.target" ];
-  
+
         serviceConfig = {
           Type = "simple";
           User = "zigduck";
@@ -558,12 +557,12 @@ in {
               DT_LOG_LEVEL = "INFO";
               DT_LOG_FILE = cfg.stateDir + "/zigduck.log";
               PATH = "/run/current-system/sw/bin:/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:/run/current-system/sw/sbin";
-            } // optionalAttrs cfg.debug { DEBUG = "1"; } // cfg.extraEnv;
+            } // optionalAttrs cfg.debug { DEBUG = "1"; }
+              // optionalAttrs (cfg.api.passwordFile != null) { API_PASSWORD_FILE = cfg.api.passwordFile; }
+              // cfg.extraEnv;
           in mapAttrsToList (name: value: "${name}=${value}") env;
         };
       };
-
-  
   
       systemd.tmpfiles.rules = [
         "d ${cfg.stateDir} 0755 zigduck zigduck - -"
