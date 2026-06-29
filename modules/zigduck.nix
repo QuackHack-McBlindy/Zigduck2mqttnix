@@ -511,7 +511,7 @@ in {
           StateDirectory = "zigduck";
           StateDirectoryMode = "0750";
           WorkingDirectory = cfg.stateDir;
-          ExecStart = "${zigduckPkgs.zigduck-rs}/bin/zigduck-rs"
+          ExecStart = "${zigduckPkgs.zigduck-rs}/bin/zigduck-rs";
           
           Restart = "on-failure";
           RestartSec = "45s";
