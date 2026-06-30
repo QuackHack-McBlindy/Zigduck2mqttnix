@@ -557,11 +557,12 @@ in {
               DT_LOG_LEVEL = "INFO";
               DT_LOG_FILE = cfg.stateDir + "/zigduck.log";
               PATH = "/run/current-system/sw/bin:/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:/run/current-system/sw/sbin";
+              HOME = cfg.stateDir;
+              YO_INTENT_DATA = cfg.stateDir + "/intent_data";
             } // optionalAttrs cfg.debug { DEBUG = "1"; }
               // optionalAttrs (cfg.api.passwordFile != null) { API_PASSWORD_FILE = cfg.api.passwordFile; }
               // cfg.extraEnv;
           in mapAttrsToList (name: value: "${name}=${value}") env;
-        };
       };
   
       systemd.tmpfiles.rules = [
