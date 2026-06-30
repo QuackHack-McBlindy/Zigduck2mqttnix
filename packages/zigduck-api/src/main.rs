@@ -71,6 +71,33 @@ fn handle_transcode_video_stream(url: &str, stream: &mut std::net::TcpStream) ->
     Ok(())
 }
 
+fn get_device_ip(query: &str) -> String {
+    let ip = get_query_arg(query, "device");
+    if ip.is_empty() {
+        "192.168.1.224".to_string()
+    } else {
+        ip
+    }
+}
+
+fn execute_adb(device_ip: &str, args: &[&str]) -> Result<(), String> {
+    let mut cmd = Command::new("adb");
+    cmd.arg("-s").arg(device_ip);
+    cmd.args(args);
+    let output = cmd.output().map_err(|e| format!("Failed to run adb: {}", e))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(())
+}
+
+fn read_webserver_url() -> Result<String, String> {
+    let path = std::env::var("WEBSERVER_SECRET_FILE")
+        .unwrap_or_else(|_| "/run/secrets/webserver".to_string());
+    std::fs::read_to_string(&path)
+        .map(|s| s.trim().to_string())
+        .map_err(|e| format!("Cannot read webserver URL: {}", e))
+}
 
 // 🦆 says ⮞ Password authentication function
 fn check_password_auth(headers: &HashMap<String, String>, query: &str) -> bool {
@@ -692,41 +719,40 @@ fn handle_device_combined_control(device_name: &str, commands: &[(&str, String)]
     
 fn handle_scene_activate(scene_name: &str) -> String {
     if scene_name.is_empty() {
-        dt_warning("Scene activation called with empty scene name");
         return r#"{"error":"Missing scene name"}"#.to_string();
     }
-
-    dt_info(&format!("Activating scene: {}", scene_name));
-    // 🦆 says ⮞ load scenes from json
     let scenes_content = match fs::read_to_string("scenes.json") {
-        Ok(content) => content,
-        Err(_) => {
-            dt_error("Scenes file not found");
-            return r#"{"error":"Scenes file not found"}"#.to_string();
-        }
+        Ok(c) => c,
+        Err(_) => return r#"{"error":"Scenes file not found"}"#.to_string(),
     };
 
-    let scenes_map: HashMap<String, serde_json::Value> = 
-        serde_json::from_str(&scenes_content).unwrap_or_default();
+    let parsed: serde_json::Value = serde_json::from_str(&scenes_content).unwrap_or(json!({}));
+    let scenes_obj = parsed
+        .get("scenes")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_else(|| serde_json::Map::new());
 
-    // 🦆 says ⮞ lowercase mappin'
-    let mut scene_lowercase_map = HashMap::new();
-    for (scene_key, _) in &scenes_map {
-        scene_lowercase_map.insert(scene_key.to_lowercase(), scene_key.clone());
+    let mut scene_map: HashMap<String, serde_json::Value> = HashMap::new();
+    for (key, value) in scenes_obj {
+        scene_map.insert(key.to_lowercase(), value);
+        scene_map.insert(key, value); // keep original case too
     }
 
-    let normalized_scene_name = scene_name.to_lowercase();
-
-    match scene_lowercase_map.get(&normalized_scene_name) {
-        Some(actual_scene_name) => {
-            match run_yo_command(&["house", "--scene", actual_scene_name]) {
-                Ok(_) => format!(r#"{{"status":"ok","scene":"{}"}}"#, actual_scene_name),
-                Err(e) => format!(r#"{{"error":"Failed to activate scene: {}"}}"#, e),
-            }
+    let normalized = scene_name.to_lowercase();
+    if let Some(scene_value) = scene_map.get(&normalized) {
+        let actual_name = if scene_map.contains_key(scene_name) { scene_name.to_string() } else {
+            scenes_obj.keys().find(|k| k.to_lowercase() == normalized).map(|k| k.clone()).unwrap_or(scene_name.to_string())
+        };
+        match run_yo_command(&["house", "--scene", &actual_name]) {
+            Ok(_) => format!(r#"{{"status":"ok","scene":"{}"}}"#, actual_name),
+            Err(e) => format!(r#"{{"error":"Failed to activate scene: {}"}}"#, e),
         }
-        None => format!(r#"{{"error":"Scene not found: {}"}}"#, scene_name),
+    } else {
+        format!(r#"{{"error":"Scene not found: {}"}}"#, scene_name)
     }
 }
+
 
 fn handle_rooms_list() -> String {
     match fs::read_to_string("rooms.json") {
@@ -991,6 +1017,72 @@ fn handle_request(mut stream: TcpStream) {
                 send_response(&mut stream, "200 OK", &response, None);
             }
         }
+        
+        
+        ("GET", "/media/next") => {
+            let device = get_device_ip(query);
+            match execute_adb(&device, &["shell", "input", "keyevent", "KEYCODE_MEDIA_NEXT"]) {
+                Ok(_) => send_response(&mut stream, "200 OK", &format!(r#"{{"status":"ok","action":"next","device":"{}"}}"#, device), None),
+                Err(e) => send_response(&mut stream, "500 Internal Server Error", &format!(r#"{{"error":"{}"}}"#, e), None),
+            }
+        }
+
+        ("GET", "/media/previous") => {
+            let device = get_device_ip(query);
+            match execute_adb(&device, &["shell", "input", "keyevent", "KEYCODE_MEDIA_PREVIOUS"]) {
+                Ok(_) => send_response(&mut stream, "200 OK", &format!(r#"{{"status":"ok","action":"previous","device":"{}"}}"#, device), None),
+                Err(e) => send_response(&mut stream, "500 Internal Server Error", &format!(r#"{{"error":"{}"}}"#, e), None),
+            }
+        }
+
+        ("GET", "/media/pause") | ("GET", "/media/play") => {
+            let device = get_device_ip(query);
+            match execute_adb(&device, &["shell", "input", "keyevent", "KEYCODE_MEDIA_PLAY_PAUSE"]) {
+                Ok(_) => send_response(&mut stream, "200 OK", &format!(r#"{{"status":"ok","action":"toggle_play","device":"{}"}}"#, device), None),
+                Err(e) => send_response(&mut stream, "500 Internal Server Error", &format!(r#"{{"error":"{}"}}"#, e), None),
+            }
+        }
+
+        ("GET", "/media/volume/up") => {
+            let device = get_device_ip(query);
+            match execute_adb(&device, &["shell", "input", "keyevent", "KEYCODE_VOLUME_UP"]) {
+                Ok(_) => send_response(&mut stream, "200 OK", &format!(r#"{{"status":"ok","action":"volume_up","device":"{}"}}"#, device), None),
+                Err(e) => send_response(&mut stream, "500 Internal Server Error", &format!(r#"{{"error":"{}"}}"#, e), None),
+            }
+        }
+
+        ("GET", "/media/volume/down") => {
+            let device = get_device_ip(query);
+            match execute_adb(&device, &["shell", "input", "keyevent", "KEYCODE_VOLUME_DOWN"]) {
+                Ok(_) => send_response(&mut stream, "200 OK", &format!(r#"{{"status":"ok","action":"volume_down","device":"{}"}}"#, device), None),
+                Err(e) => send_response(&mut stream, "500 Internal Server Error", &format!(r#"{{"error":"{}"}}"#, e), None),
+            }
+        }
+
+        ("GET", "/media/playlist") => {
+            let device = get_device_ip(query);
+            let url = get_query_arg(query, "url");
+            let playlist_url = if url.is_empty() {
+                match read_webserver_url() {
+                    Ok(base) => format!("{}/playlist.m3u", base),
+                    Err(e) => {
+                        send_response(&mut stream, "500 Internal Server Error", &format!(r#"{{"error":"{}"}}"#, e), None);
+                        return;
+                    }
+                }
+            } else {
+                url
+            };
+
+            match execute_adb(
+                &device,
+                &["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", &playlist_url, "-t", "audio/x-mpegurl"],
+            ) {
+                Ok(_) => send_response(&mut stream, "200 OK", &format!(r#"{{"status":"ok","action":"play_playlist","device":"{}","url":"{}"}}"#, device, playlist_url), None),
+                Err(e) => send_response(&mut stream, "500 Internal Server Error", &format!(r#"{{"error":"Failed to start playlist: {}"}}"#, e), None),
+            }
+        }
+        
         ("GET", "/playlist") | ("GET", "/api/playlist") => {
             match run_yo_command(&["vlc", "--list"]) {
                 Ok(output) => send_response(&mut stream, "200 OK", &output, None),
@@ -1345,14 +1437,6 @@ fn handle_request(mut stream: TcpStream) {
 }
 
 fn main() {
-    //setup_ducktrace_logging(None, None);
-
-//    let config_path = std::env::var("ZIGDUCK_CONFIG")
-//        .unwrap_or_else(|_| "/etc/zigduck/config.json".to_string());
-//    let config_content = std::fs::read_to_string(&config_path)
-//        .expect("Failed to read config file");
-//    let config: Config = serde_json::from_str(&config_content)
-//        .expect("Failed to parse config JSON");
     dt_setup(None, None);
     dt_info(&format!("🚀 Starting yo API server"));
         
@@ -1398,6 +1482,13 @@ fn main() {
     log("  GET /device/types               - List devices by type");
     log("  GET /scene/{scene}              - Activate scene (e.g., /scene/dark)");
     log("  GET /device/{device}/{command}/{value} - Control devices");
+    log("  GET /media/next?device=...      - Next track (direct ADB)");
+    log("  GET /media/previous?device=...  - Previous track (direct ADB)");
+    log("  GET /media/play?device=...      - Toggle play/pause (direct ADB)");
+    log("  GET /media/pause?device=...     - (same as play)");
+    log("  GET /media/volume/up?device=... - Volume up (direct ADB)");
+    log("  GET /media/volume/down?device=... - Volume down (direct ADB)");
+    log("  GET /media/playlist?device=...[&url=...] - Start playlist on device");
     log("      Examples:");
     log("      /device/PC/state/on                     - Turn device on");
     log("      /device/PC/state/off                    - Turn device off");
