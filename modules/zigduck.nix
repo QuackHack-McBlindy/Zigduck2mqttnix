@@ -563,8 +563,9 @@ in {
               // optionalAttrs (cfg.api.passwordFile != null) { API_PASSWORD_FILE = cfg.api.passwordFile; }
               // cfg.extraEnv;
           in mapAttrsToList (name: value: "${name}=${value}") env;
+        };
       };
-  
+
       systemd.tmpfiles.rules = [
         "d ${cfg.stateDir} 0755 zigduck zigduck - -"
         "d ${cfg.stateDir}/timers 0755 zigduck zigduck - -"
@@ -574,7 +575,9 @@ in {
        "L+ ${cfg.stateDir}/scenes.json - - - - /etc/zigduck/scenes.json"
        "L+ ${cfg.stateDir}/automations.json - - - - /etc/zigduck/automations.json"
        #"L+ ${cfg.stateDir}/api.json - - - - /etc/zigduck/api.json"
-      ];  
+        "d ${cfg.stateDir}/.config/duckTrace 0750 zigduck zigduck - -"
+        "d ${cfg.stateDir}/intent_data 0750 zigduck zigduck - -"
+      ];
     })
 
     (mkIf cfg.cli.enable {
