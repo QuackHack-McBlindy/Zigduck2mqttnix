@@ -725,7 +725,6 @@ fn handle_scene_activate(scene_name: &str) -> String {
         Ok(c) => c,
         Err(_) => return r#"{"error":"Scenes file not found"}"#.to_string(),
     };
-
     let parsed: serde_json::Value = serde_json::from_str(&scenes_content).unwrap_or(json!({}));
     let scenes_obj = parsed
         .get("scenes")
@@ -734,16 +733,18 @@ fn handle_scene_activate(scene_name: &str) -> String {
         .unwrap_or_else(|| serde_json::Map::new());
 
     let mut scene_map: HashMap<String, serde_json::Value> = HashMap::new();
-    for (key, value) in scenes_obj {
-        scene_map.insert(key.to_lowercase(), value);
-        scene_map.insert(key, value); // keep original case too
+    for (key, value) in scenes_obj.iter() {
+        scene_map.insert(key.to_lowercase(), value.clone());
+        scene_map.insert(key.clone(), value.clone());
     }
 
     let normalized = scene_name.to_lowercase();
-    if let Some(scene_value) = scene_map.get(&normalized) {
-        let actual_name = if scene_map.contains_key(scene_name) { scene_name.to_string() } else {
-            scenes_obj.keys().find(|k| k.to_lowercase() == normalized).map(|k| k.clone()).unwrap_or(scene_name.to_string())
-        };
+    if scene_map.contains_key(&normalized) {
+        let actual_name = scenes_obj
+            .keys()
+            .find(|k| k.to_lowercase() == normalized)
+            .cloned()
+            .unwrap_or_else(|| scene_name.to_string());
         match run_yo_command(&["house", "--scene", &actual_name]) {
             Ok(_) => format!(r#"{{"status":"ok","scene":"{}"}}"#, actual_name),
             Err(e) => format!(r#"{{"error":"Failed to activate scene: {}"}}"#, e),
