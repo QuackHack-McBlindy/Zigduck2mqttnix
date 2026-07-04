@@ -1018,7 +1018,26 @@ fn handle_request(mut stream: TcpStream) {
                 send_response(&mut stream, "200 OK", &response, None);
             }
         }
-        
+
+        ("GET", "/media/power/on") | ("GET", "/api/media/power/on") => {
+            let device = get_device_ip(query);
+            match execute_adb(&device, &["shell", "input", "keyevent", "KEYCODE_WAKEUP"]) {
+                Ok(_) => send_response(&mut stream, "200 OK",
+                    &format!(r#"{{"status":"ok","action":"power_on","device":"{}"}}"#, device), None),
+                Err(e) => send_response(&mut stream, "500 Internal Server Error",
+                    &format!(r#"{{"error":"{}"}}"#, e), None),
+            }
+        }
+
+        ("GET", "/media/power/off") | ("GET", "/api/media/power/off") => {
+            let device = get_device_ip(query);
+            match execute_adb(&device, &["shell", "input", "keyevent", "KEYCODE_SLEEP"]) {
+                Ok(_) => send_response(&mut stream, "200 OK",
+                    &format!(r#"{{"status":"ok","action":"power_off","device":"{}"}}"#, device), None),
+                Err(e) => send_response(&mut stream, "500 Internal Server Error",
+                    &format!(r#"{{"error":"{}"}}"#, e), None),
+            }
+        }        
         
         ("GET", "/media/next") => {
             let device = get_device_ip(query);
