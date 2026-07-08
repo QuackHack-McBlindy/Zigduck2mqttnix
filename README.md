@@ -10,28 +10,32 @@ Declarative full-stack Zigbee home automation system that's reproducible and dep
 Nix for configuration, Rust for responsive async runtime.  
 Under the hood: zigbee2mqtt, Mosquitto and adb.   
   
-Define once, forget forever.  
+Define once, forget forever.   
 
  
-``` 
-           Nix 
+
+```markdown
+            Nix
              │
              ▼
-       zigduck-rs
+        zigduck-rs
              │
-   ┌────┴─────┐
-   ▼                   ▼
-MQTT         REST API
-   │                    │
-   ▼                   ▼
-zigbee2mqtt adb/media
-              │
-              ▼
-         Devices
- 
+      ┌──────┴──────┐
+      ▼             ▼
+    MQTT         REST API
+      │             │
+      ▼             ▼
+ zigbee2mqtt    adb/media
+      │             │
+      └──────┬──────┘
+             ▼
+          Devices
 ```
 
+ 
+
 <br> 
+ 
  
 ## **Installation**
 
