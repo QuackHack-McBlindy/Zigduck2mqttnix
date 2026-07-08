@@ -498,15 +498,18 @@ API
 </details>
 
 <br>
-<br>
 
 
 <details><summary><strong>
 Inspiration?
 </strong></summary>
 
+<br>
+
 for a full configuration example view:  
 *[my home](https://github.com/QuackHack-McBlindy/dotfiles/blob/main/modules/myHouse.nix)*
+
+<br>
 
 </details>
 
