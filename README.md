@@ -498,10 +498,17 @@ API
 </details>
 
 <br>
+<br>
 
 
+<details><summary><strong>
+Inspiration?
+</strong></summary>
 
-[complete exampole](https://github.com/QuackHack-McBlindy/dotfiles/blob/main/modules/myHouse.nix)
+for a full configuration example view:  
+*[my home](https://github.com/QuackHack-McBlindy/dotfiles/blob/main/modules/myHouse.nix)*
+
+</details>
 
 <br>
 
@@ -511,4 +518,5 @@ This project is licensed under the terms of the MIT license.
 See the `LICENSE` file in the repository for full details.
 
 Contributions are welcomed.
+
 
