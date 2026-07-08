@@ -9,8 +9,29 @@
 Declarative full-stack Zigbee home automation system that's reproducible and deployable.  
 Nix for configuration, Rust for responsive async runtime.  
 Under the hood: zigbee2mqtt, Mosquitto and adb.   
+  
+Define once, forget forever.  
 
  
+``` 
+           Nix 
+             │
+             ▼
+       zigduck-rs
+             │
+   ┌────┴─────┐
+   ▼                   ▼
+MQTT         REST API
+   │                    │
+   ▼                   ▼
+zigbee2mqtt adb/media
+              │
+              ▼
+         Devices
+ 
+```
+
+<br> 
  
 ## **Installation**
 
@@ -81,7 +102,7 @@ Zigbee configuration
 ```nix
   house = {
     zigbee = {
-      # without this netwoork key there is no reproducibility
+      # without this network key there is no reproducibility
       networkKeyFile = config.sops.secrets.z2m_network_key.path;
       mosquitto = {
         host = "192.168.1.110";
@@ -139,13 +160,13 @@ Rooms
 Lights /  Devices 
 </strong></summary>
 
-**Example configuraiton:**  
+**Example configuration:**  
 
 ```nix
   house = {
     zigbee = { 
       devices = {
-        "0x0016830103ba7e95" = { # 64bit IEEE adress (this is the unique device ID)  
+        "0x0016830103ba7e95" = { # 64bit IEEE address (this is the unique device ID)  
           friendly_name = "Dimmer Switch Kitchen"; # simple human readable friendly name
           room = "kitchen"; # bind to group
           type = "dimmer"; # device type
@@ -246,7 +267,7 @@ Automations
             {
               type = "shell";
               command = ''
-                tts greeetings
+                tts "greeting message" 
               '';
             }
           ];
@@ -344,7 +365,7 @@ Automations
 
 
 <details><summary><strong>
-Media (opttional)
+Media (optional)
 </strong></summary>
 
 **Example configuraiton:**  
