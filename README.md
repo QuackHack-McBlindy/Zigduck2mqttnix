@@ -8,7 +8,7 @@
 
 Declarative full-stack Zigbee home automation system that's reproducible and deployable.  
 Nix for configuration, Rust for responsive async runtime.  
-Under the hood: zigbee2mqtt, Mosquitto and adb.   
+Under the hood: zigbee2mqtt, Mosquitto, serde_json and adb.   
   
 Define once, forget forever.   
 
@@ -164,7 +164,7 @@ Rooms
 Lights /  Devices 
 </strong></summary>
 
-zigduck2mqttnix always uses smart defaults.  
+zigduck2mqttnix always uses smart defaults.   
 Define a dimmer, or motion sensor it'those devices would default to control that room, unless overidden.     
 
 **Example configuration:**  
