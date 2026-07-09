@@ -297,9 +297,9 @@ Automations
           kitchen = { 
             motion_not_detected = [
               {
-                type = "shell";
-                command = 
-                '';
+                type = "mqtt";
+                topic = "zigduck/topic/subtopic";
+                message = "my mqtt message";
               }
               {
                 type = "scene";
