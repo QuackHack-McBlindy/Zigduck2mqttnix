@@ -164,6 +164,9 @@ Rooms
 Lights /  Devices 
 </strong></summary>
 
+zigduck2mqttnix always uses smart defaults.  
+Define a dimmer, or motion sensor it'those devices would default to control that room, unless overidden.     
+
 **Example configuration:**  
 
 ```nix
