@@ -2338,7 +2338,7 @@ in {
       StateDirectory = "zigduck";
       StateDirectoryMode = "0750";
       WorkingDirectory = cfg.stateDir;
-      ExecStart = "${zigduckPkgs.zigduck-dashboard}/bin/zigduck-dashboard --password-file ${cfg.dashboard.passwordFile} --port ${toString cfg.dashboard.port} --workdir ${cfg.stateDir;}";
+      ExecStart = "${zigduckPkgs.zigduck-dashboard}/bin/zigduck-dashboard --password-file ${cfg.dashboard.passwordFile} --port ${toString cfg.dashboard.port} --workdir ${cfg.stateDir}";
       Restart = "on-failure";
       RestartSec = "45s";
 
