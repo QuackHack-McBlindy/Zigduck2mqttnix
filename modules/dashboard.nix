@@ -427,7 +427,7 @@ let
 
   
   # 🦆 says ⮞ SERVER CONFIGURATION
-  write-dash = pkgs.writeShellScriptBin "serve-dashboard" ''
+  system.activationScripts.dashboard.text = ''
     WORKDIR="/var/lib/zigduck/dashboard"
     mkdir -p $WORKDIR
 
@@ -2360,18 +2360,5 @@ in {
     };
   };
   
-  systemd.services.zigduck-dashfiles = {
-    description = "writes Zigduck dashboard files";
-    after = [ "network.target" "zigduck.service" ];
-    wantedBy = [ "multi-user.target" ];  
-    serviceConfig = {
-      Type = "simple";
-      StateDirectory = "zigduck";
-      StateDirectoryMode = "0750";
-      WorkingDirectory = cfg.stateDir;
-      ExecStart = "${write-dash}/bin/write-dash";
-      Restart = "on-failure";
-      RestartSec = "45s";
-    };
 
   };}
