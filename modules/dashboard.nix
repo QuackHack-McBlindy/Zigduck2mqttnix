@@ -2326,39 +2326,38 @@ in {
   # 🦆 says ⮞ lastly a manifest 4 iOS "app" 
   environment.etc."site.webmanifest".source = iOSmanifest;
 
-  (mkIf cfg.dashboard.enable {  
-    systemd.services.zigduck-dashboard = {
-      description = "Zigduck dashboard Service";
-      after = [ "network.target" "zigduck.service" ];
-      wantedBy = [ "multi-user.target" ];
+  systemd.services.zigduck-dashboard = {
+    description = "Zigduck dashboard Service";
+    after = [ "network.target" "zigduck.service" ];
+    wantedBy = [ "multi-user.target" ];
   
-      serviceConfig = {
-        Type = "simple";
-        User = "zigduck";
-        Group = "zigduck";
-        StateDirectory = "zigduck";
-        StateDirectoryMode = "0750";
-        WorkingDirectory = cfg.stateDir;
-        ExecStart = "${zigduckPkgs.zigduck-dashboard}/bin/zigduck-dashboard --password-file ${cfg.dashboard.passwordFile} --port ${toString cfg.dashboard.port} --workdir ${cfg.stateDir;}";
-        Restart = "on-failure";
-        RestartSec = "45s";
-  
-        Environment = let
-          env = {
-            MQTT_BROKER = cfg.broker;
-            MQTT_USER = cfg.user;
-            MQTT_PASSWORD_FILE = cfg.passwordFile;
-            ZIGDUCK_CONFIG = cfg.configFile;
-            STATE_DIR = cfg.stateDir;
-            DT_LOG_LEVEL = "INFO";
-            DT_LOG_FILE = cfg.stateDir + "/zigduck.log";
-            PATH = "/run/current-system/sw/bin:/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:/run/current-system/sw/sbin";
-            HOME = cfg.stateDir;
-          } // optionalAttrs cfg.debug { DEBUG = "1"; }
-            // optionalAttrs (cfg.api.passwordFile != null) { API_PASSWORD_FILE = cfg.api.passwordFile; }
-            // cfg.extraEnv;
-        in mapAttrsToList (name: value: "${name}=${value}") env;
-      };
+    serviceConfig = {
+      Type = "simple";
+      User = "zigduck";
+      Group = "zigduck";
+      StateDirectory = "zigduck";
+      StateDirectoryMode = "0750";
+      WorkingDirectory = cfg.stateDir;
+      ExecStart = "${zigduckPkgs.zigduck-dashboard}/bin/zigduck-dashboard --password-file ${cfg.dashboard.passwordFile} --port ${toString cfg.dashboard.port} --workdir ${cfg.stateDir;}";
+      Restart = "on-failure";
+      RestartSec = "45s";
+
+      Environment = let
+        env = {
+          MQTT_BROKER = cfg.broker;
+          MQTT_USER = cfg.user;
+          MQTT_PASSWORD_FILE = cfg.passwordFile;
+          ZIGDUCK_CONFIG = cfg.configFile;
+          STATE_DIR = cfg.stateDir;
+          DT_LOG_LEVEL = "INFO";
+          DT_LOG_FILE = cfg.stateDir + "/zigduck.log";
+          PATH = "/run/current-system/sw/bin:/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:/run/current-system/sw/sbin";
+          HOME = cfg.stateDir;
+        } // optionalAttrs cfg.debug { DEBUG = "1"; }
+          // optionalAttrs (cfg.api.passwordFile != null) { API_PASSWORD_FILE = cfg.api.passwordFile; }
+          // cfg.extraEnv;
+      in mapAttrsToList (name: value: "${name}=${value}") env;
+    };
 
     systemd.services.zigduck-dashfiles = {
       description = "writes Zigduck dashboard files";
