@@ -1,6 +1,6 @@
 [package]
 name    = "zigduck-api"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 # ───────────────────────────────────────────────────────────────────────
 description = """
@@ -28,6 +28,7 @@ anyhow = "1.0"
 colored = "2.1"
 reqwest = { version = "0.11", features = ["blocking", "json"] }
 multipart = "0.18"
+lazy_static = "1.4"
 
 [[bin]]
 name = "zigduck-api"

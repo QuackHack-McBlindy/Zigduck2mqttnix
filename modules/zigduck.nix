@@ -11,6 +11,8 @@ let
   zigduckDir = cfg.stateDir;
   zigduckPkgs = self.inputs.zigduck2mqttnix.packages.${pkgs.system};  
 
+  imports = [ ./dashboard.nix ];
+
   # 🦆 says ⮞ define Zigbee devices here yo 
   zigbeeDevices = config.house.zigbee.devices;
   
@@ -237,6 +239,26 @@ in {
         description = "Path to password file for API authentication (YO_API_PASSWORD_FILE)";
       };
     };
+
+    dashboard = {
+      enable = mkEnableOption "Zigduck API service";
+      host = mkOption {
+        type = types.str;
+        default = "0.0.0.0";
+        description = "Host to bind the webserver to";
+      };
+      port = mkOption {
+        type = types.port;
+        default = 13336;
+        description = "Port for the dashboard";
+      };
+      passwordFile = mkOption {
+        type = types.nullOr types.path;
+        default = config.house.dashboard.passwordFile or null;
+        description = "Path to password file for API authentication (YO_API_PASSWORD_FILE)";
+      };
+    };
+
 
     # Command line options
     cli = {
@@ -565,6 +587,9 @@ in {
         };
       };
 
+
+
+
       systemd.tmpfiles.rules = [
         "d ${cfg.stateDir} 0755 zigduck zigduck - -"
         "d ${cfg.stateDir}/timers 0755 zigduck zigduck - -"
@@ -581,6 +606,10 @@ in {
 
     (mkIf cfg.cli.enable {
       environment.systemPackages = [ zigduckPkgs.zigduck-cli ];
+    })
+    
+    (mkIf cfg.dashboard.enable {
+      environment.systemPackages = [ zigduckPkgs.zigduck-dashboard ];      
     })
   
     {

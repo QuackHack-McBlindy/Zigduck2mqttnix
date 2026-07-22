@@ -1,17 +1,192 @@
 use std::io::{BufRead, BufReader, Read};
 use std::net::{TcpListener, TcpStream};
 use std::process::Command;
-use std::collections::HashMap;
 use std::fs::{self, create_dir_all};
 use std::env;
 use std::io::Write;
 use serde_json::{Value, json, Map};
 use ducktrace_logger::*;
+use std::sync::{Arc, Mutex, Condvar};
+use std::time::{Duration, Instant};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref TIMER_MANAGER: Arc<TimerManager> = TimerManager::new();
+}
+
 
 
 fn log(message: &str) {
     eprintln!("[API] {}", message);
 }
+
+fn start_timer_thread(manager: Arc<TimerManager>) {
+    std::thread::spawn(move || {
+        loop {
+            let (next_fire, has_timers) = {
+                let timers = manager.timers.lock().unwrap();
+                let next = timers.values()
+                    .map(|t| t.fire_at)
+                    .min();
+                (next, !timers.is_empty())
+            };
+
+            if let Some(deadline) = next_fire {
+                let now = Instant::now();
+                if deadline <= now {
+                    let mut timers = manager.timers.lock().unwrap();
+                    let due_ids: Vec<TimerId> = timers
+                        .iter()
+                        .filter(|(_, t)| t.fire_at <= now && t.paused_remaining.is_none())
+                        .map(|(id, _)| *id)
+                        .collect();
+
+                    for id in due_ids {
+                        if let Some(timer) = timers.remove(&id) {
+                            match &timer.action {
+                                TimerAction::MqttMessage { topic, payload } => {
+                                    let _ = std::process::Command::new("mosquitto_pub")
+                                        .arg("-t").arg(topic)
+                                        .arg("-m").arg(payload)
+                                        .spawn();
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                } else {
+                    let sleep_time = deadline - now;
+                    let (lock, result) = manager.condvar
+                        .wait_timeout(manager.timers.lock().unwrap(), sleep_time)
+                        .unwrap();
+                }
+            } else {
+                drop(manager.condvar.wait(manager.timers.lock().unwrap()));
+            }
+        }
+    });
+}
+
+
+type TimerId = u64;
+
+#[derive(Debug, Clone)]
+struct Timer {
+    id: TimerId,
+    name: String,
+    fire_at: Instant,
+    duration: Duration,
+    paused_remaining: Option<Duration>,
+    action: TimerAction,
+}
+
+#[derive(Debug, Clone)]
+enum TimerAction {
+    MqttMessage {
+        topic: String,
+        payload: String,
+    },
+}
+
+struct TimerManager {
+    next_id: AtomicU64,
+    timers: Mutex<HashMap<TimerId, Timer>>,
+    condvar: Condvar,
+}
+
+impl TimerManager {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            next_id: AtomicU64::new(1),
+            timers: Mutex::new(HashMap::new()),
+            condvar: Condvar::new(),
+        })
+    }
+
+    fn add(
+        &self,
+        hours: u32,
+        minutes: u32,
+        seconds: u32,
+        action: TimerAction,
+        name: String,
+    ) -> TimerId {
+        let total_secs = hours * 3600 + minutes * 60 + seconds;
+        let duration = Duration::from_secs(total_secs as u64);
+        let fire_at = Instant::now() + duration;
+
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let timer = Timer {
+            id,
+            name,
+            fire_at,
+            duration,
+            paused_remaining: None,
+            action,
+        };
+
+        let mut timers = self.timers.lock().unwrap();
+        timers.insert(id, timer);
+        drop(timers);
+
+        self.condvar.notify_one();
+        id
+    }
+
+    fn pause(&self, id: TimerId) -> Result<(), String> {
+        let mut timers = self.timers.lock().unwrap();
+        if let Some(timer) = timers.get_mut(&id) {
+            if timer.paused_remaining.is_some() {
+                return Err("Timer already paused".into());
+            }
+            let remaining = timer.fire_at.saturating_duration_since(Instant::now());
+            timer.paused_remaining = Some(remaining);
+            timer.fire_at = Instant::now() + Duration::from_secs(60 * 60 * 24);
+            drop(timers);
+            self.condvar.notify_one();
+            Ok(())
+        } else {
+            Err("Timer not found".into())
+        }
+    }
+
+    fn resume(&self, id: TimerId) -> Result<(), String> {
+        let mut timers = self.timers.lock().unwrap();
+        if let Some(timer) = timers.get_mut(&id) {
+            if let Some(remaining) = timer.paused_remaining.take() {
+                timer.fire_at = Instant::now() + remaining;
+                drop(timers);
+                self.condvar.notify_one();
+                Ok(())
+            } else {
+                Err("Timer not paused".into())
+            }
+        } else {
+            Err("Timer not found".into())
+        }
+    }
+
+    fn cancel(&self, id: TimerId) -> Result<Timer, String> {
+        let mut timers = self.timers.lock().unwrap();
+        if let Some(timer) = timers.remove(&id) {
+            drop(timers);
+            self.condvar.notify_one();
+            Ok(timer)
+        } else {
+            Err("Timer not found".into())
+        }
+    }
+
+    fn list(&self) -> Vec<Timer> {
+        let timers = self.timers.lock().unwrap();
+        timers.values().cloned().collect()
+    }
+}
+
+
 
 fn handle_transcode_video_stream(url: &str, stream: &mut std::net::TcpStream) -> Result<(), String> {
     dt_info(&format!("Streaming transcoded video from URL: {}", url));
@@ -628,94 +803,138 @@ fn handle_device_rest_control(path: &str) -> String {
     handle_device_combined_control(&device_name, &commands)
 }
 
+
 fn handle_device_combined_control(device_name: &str, commands: &[(&str, String)]) -> String {
-    dt_info(&format!("Device '{}' commands: {:?}", device_name, commands)); 
+    dt_info(&format!("Device '{}' commands: {:?}", device_name, commands));
+
     let devices_json = fs::read_to_string("devices.json").unwrap_or_else(|_| "{}".to_string());
-    let devices: HashMap<String, serde_json::Value> = serde_json::from_str(&devices_json).unwrap_or_default();
+    let devices: HashMap<String, serde_json::Value> =
+        serde_json::from_str(&devices_json).unwrap_or_default();
 
     let mut found_device = None;
     for (dev_name, _) in &devices {
         if dev_name.to_lowercase() == device_name.to_lowercase() {
-            found_device = Some(dev_name);
+            found_device = Some(dev_name.clone());
             break;
         }
     }
 
-    match found_device {
-        Some(actual_name) => {
-            let mut message = HashMap::new();
-            
-            for (action, value) in commands {
-                match *action {
-                    "state" => {
-                        match value.to_lowercase().as_str() {
-                            "on" => {
-                                message.insert("state".to_string(), "ON".to_string());
-                            }
-                            "off" => {
-                                message.insert("state".to_string(), "OFF".to_string());
-                            }
-                            _ => return format!(r#"{{"error":"Invalid state value: {}"}}"#, value),
-                        }
-                    }
-                    "brightness" => {
-                        if let Ok(brightness) = value.parse::<u16>() {
-                            message.insert("brightness".to_string(), brightness.to_string());
+    let actual_name = match found_device {
+        Some(name) => name,
+        None => return format!(r#"{{"error":"Device not found: {}"}}"#, device_name),
+    };
 
-                            if !message.contains_key("state") {
-                                message.insert("state".to_string(), "ON".to_string());
-                            }
-                        } else {
-                            return format!(r#"{{"error":"Invalid brightness value: {}"}}"#, value);
-                        }
-                    }
-                    "color" | "colour" => {
-                        let hex_value = if value.starts_with('#') { value.clone() } else { format!("#{}", value) };
-                        if hex_value.len() == 7 {
-                            let color_map = HashMap::from([("hex".to_string(), hex_value)]);
-                            message.insert("color".to_string(), serde_json::to_string(&color_map).unwrap());
+    let mut args: Vec<String> = vec!["--device".to_string(), actual_name.clone()];
+    let mut state_explicit = false;
 
-                            if !message.contains_key("state") {
-                                message.insert("state".to_string(), "ON".to_string());
-                            }
-                        } else {
-                            return format!(r#"{{"error":"Invalid color format, use #RRGGBB or RRGGBB"}}"#);
-                        }
+    for (action, value) in commands {
+        match *action {
+            "state" => {
+                let state_val = value.to_lowercase();
+                match state_val.as_str() {
+                    "on" | "off" | "toggle" => {
+                        args.push("--state".to_string());
+                        args.push(state_val);
+                        state_explicit = true;
                     }
-                    "temperature" | "temp" | "color_temp" => {
-                        if let Ok(temp) = value.parse::<u16>() {
-                            message.insert("color_temp".to_string(), temp.to_string());
-                            if !message.contains_key("state") {
-                                message.insert("state".to_string(), "ON".to_string());
-                            }
-                        } else {
-                            return format!(r#"{{"error":"Invalid temperature value: {}"}}"#, value);
-                        }
+                    _ => {
+                        return format!(r#"{{"error":"Invalid state value: {}"}}"#, value);
                     }
-                    _ => return format!(r#"{{"error":"Unknown action: {}"}}"#, action),
                 }
             }
-            
-            let message_json = serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string());
-            let topic = format!("zigbee2mqtt/{}/set", actual_name);
-            
-            match run_yo_command(&["mqtt_pub", "--topic", &topic, "--message", &message_json]) {
-                Ok(_) => {
-                    let command_list: Vec<String> = commands.iter()
-                        .map(|(a, v)| format!("{}:{}", a, v))
-                        .collect();
-                    format!(r#"{{"status":"ok","device":"{}","commands":{}}}"#, 
-                        actual_name, serde_json::to_string(&command_list).unwrap())
+            "brightness" => {
+                if let Ok(raw_val) = value.parse::<u16>() {
+                    let pct = if raw_val > 100 {
+                        ((raw_val as f32 / 254.0) * 100.0).round() as u8
+                    } else {
+                        raw_val as u8
+                    };
+                    if pct < 1 || pct > 100 {
+                        return format!(
+                            r#"{{"error":"Invalid brightness value (must be 1-100 or 1-254): {}"}}"#,
+                            value
+                        );
+                    }
+                    args.push("--brightness".to_string());
+                    args.push(pct.to_string());
+                } else {
+                    return format!(r#"{{"error":"Invalid brightness value: {}"}}"#, value);
                 }
-                Err(e) => {
-                    dt_error(&format!("Failed to control device '{}': {}", actual_name, e));
-                    format!(r#"{{"error":"Failed to control device: {}"}}"#, e)
+            }
+            "color" | "colour" => {
+                let hex_value = if value.starts_with('#') {
+                    value.clone()
+                } else {
+                    format!("#{}", value)
+                };
+                if hex_value.len() == 7 {
+                    args.push("--color".to_string());
+                    args.push(hex_value);
+                } else {
+                    return format!(
+                        r#"{{"error":"Invalid color format, use #RRGGBB or RRGGBB"}}"#
+                    );
                 }
+            }
+            "temperature" | "temp" | "color_temp" => {
+                if let Ok(temp) = value.parse::<u16>() {
+                    args.push("--temperature".to_string());
+                    args.push(temp.to_string());
+                } else {
+                    return format!(
+                        r#"{{"error":"Invalid temperature value: {}"}}"#,
+                        value
+                    );
+                }
+            }
+            _ => {
+                return format!(r#"{{"error":"Unknown action: {}"}}"#, action);
             }
         }
-        None => format!(r#"{{"error":"Device not found: {}"}}"#, device_name),
+    }
+
+    if !state_explicit {
+        args.push("--state".to_string());
+        args.push("on".to_string());
+    }
+
+    let output = Command::new("zigduck-cli")
+        .args(&args)
+        .output();
+
+    match output {
+        Ok(output) if output.status.success() => {
+            let command_list: Vec<String> = commands
+                .iter()
+                .map(|(a, v)| format!("{}:{}", a, v))
+                .collect();
+            format!(
+                r#"{{"status":"ok","device":"{}","commands":{}}}"#,
+                actual_name,
+                serde_json::to_string(&command_list).unwrap()
+            )
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            dt_error(&format!(
+                "Failed to control device '{}': {}",
+                actual_name, stderr
+            ));
+            format!(r#"{{"error":"Failed to control device: {}"}}"#, stderr.trim())
+        }
+        Err(e) => {
+            dt_error(&format!(
+                "Failed to execute zigduck-cli for '{}': {}",
+                actual_name, e
+            ));
+            format!(
+                r#"{{"error":"Failed to execute zigduck-cli: {}"}}"#,
+                e
+            )
+        }
     }
 }
+    
     
 fn handle_scene_activate(scene_name: &str) -> String {
     if scene_name.is_empty() {
@@ -745,13 +964,26 @@ fn handle_scene_activate(scene_name: &str) -> String {
             .find(|k| k.to_lowercase() == normalized)
             .cloned()
             .unwrap_or_else(|| scene_name.to_string());
-        match run_yo_command(&["house", "--scene", &actual_name]) {
-            Ok(_) => format!(r#"{{"status":"ok","scene":"{}"}}"#, actual_name),
-            Err(e) => format!(r#"{{"error":"Failed to activate scene: {}"}}"#, e),
+        //match run_yo_command(&["house", "--scene", &actual_name]) { 
+        match Command::new("zigduck-cli")
+            .arg("--scene")
+            .arg(&actual_name)
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                format!(r#"{{"status":"ok","scene":"{}"}}"#, actual_name)
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                dt_error(&format!("Failed to activate scene '{}': {}", actual_name, stderr));
+                format!(r#"{{"error":"Failed to activate scene: {}"}}"#, stderr.trim())
+            }
+            Err(e) => {
+                dt_error(&format!("Failed to run zigduck-cli for scene '{}': {}", actual_name, e));
+                format!(r#"{{"error":"Failed to run zigduck-cli: {}"}}"#, e)
+            }
         }
-    } else {
-        format!(r#"{{"error":"Scene not found: {}"}}"#, scene_name)
-    }
+    } else { format!(r#"{{"error":"Scene not found: {}"}}"#, scene_name) }
 }
 
 
@@ -984,18 +1216,89 @@ fn handle_request(mut stream: TcpStream) {
                 }
             }
         }
-        ("GET", "/timers") | ("GET", "/api/timers") => {
-            match run_yo_command(&["timer", "--list"]) {
-                Ok(output) => {
-                    dt_info("Listing timers");
-                    send_response(&mut stream, "200 OK", &output, None);
-                }
-                Err(e) => {
-                    dt_error(&format!("Failed to fetch timers: {}", e));
-                    send_response(&mut stream, "500 Internal Server Error", r#"{"error":"Failed to fetch timers"}"#, None);
-                }
+        
+        
+        
+        ("GET", "/timers") => {
+            let timers = TIMER_MANAGER.list();
+            let json_timers: Vec<serde_json::Value> = timers.iter().map(|t| {
+                let remaining = if let Some(paused_rem) = t.paused_remaining {
+                    paused_rem
+                } else {
+                    t.fire_at.saturating_duration_since(Instant::now())
+                };
+                json!({
+                    "id": t.id,
+                    "name": t.name,
+                    "remaining_seconds": remaining.as_secs(),
+                    "paused": t.paused_remaining.is_some(),
+                    "action": match &t.action {
+                        TimerAction::MqttMessage { topic, payload } => json!({
+                            "type": "mqtt",
+                            "topic": topic,
+                            "payload": payload,
+                        })
+                    }
+                })
+            }).collect();
+
+            let body = serde_json::to_string(&json_timers).unwrap_or_else(|_| "[]".to_string());
+            send_response(&mut stream, "200 OK", &body, None);
+        }
+        
+        ("GET", "/timers/set") => {
+            let hours: u32 = get_query_arg(query, "hours").parse().unwrap_or(0);
+            let minutes: u32 = get_query_arg(query, "minutes").parse().unwrap_or(0);
+            let seconds: u32 = get_query_arg(query, "seconds").parse().unwrap_or(0);
+            let topic = get_query_arg(query, "topic");
+            let payload = get_query_arg(query, "payload");
+            let name = urldecode(&get_query_arg(query, "name"));
+            if topic.is_empty() || payload.is_empty() || (hours == 0 && minutes == 0 && seconds == 0) {
+                send_response(&mut stream, "400 Bad Request", r#"{"error":"Missing or invalid parameters (need topic, payload, and a positive duration)"}"#, None);
+                return;
+            }
+            let action = TimerAction::MqttMessage { topic, payload };
+            let id = TIMER_MANAGER.add(hours, minutes, seconds, action, name);
+            send_response(&mut stream, "200 OK", &format!(r#"{{"status":"ok","timer_id":{}}}"#, id), None);
+        }
+        
+        ("GET", "/timers/pause") => {
+            let id: TimerId = get_query_arg(query, "id").parse().unwrap_or(0);
+            if id == 0 {
+                send_response(&mut stream, "400 Bad Request", r#"{"error":"Missing id parameter"}"#, None);
+                return;
+            }
+            match TIMER_MANAGER.pause(id) {
+                Ok(()) => send_response(&mut stream, "200 OK", r#"{"status":"ok"}"#, None),
+                Err(e) => send_response(&mut stream, "400 Bad Request", &format!(r#"{{"error":"{}"}}"#, e), None),
             }
         }
+        
+        ("GET", "/timers/resume") => {
+            let id: TimerId = get_query_arg(query, "id").parse().unwrap_or(0);
+            if id == 0 {
+                send_response(&mut stream, "400 Bad Request", r#"{"error":"Missing id parameter"}"#, None);
+                return;
+            }
+            match TIMER_MANAGER.resume(id) {
+                Ok(()) => send_response(&mut stream, "200 OK", r#"{"status":"ok"}"#, None),
+                Err(e) => send_response(&mut stream, "400 Bad Request", &format!(r#"{{"error":"{}"}}"#, e), None),
+            }
+        }
+        
+        ("GET", "/timers/cancel") => {
+            let id: TimerId = get_query_arg(query, "id").parse().unwrap_or(0);
+            if id == 0 {
+                send_response(&mut stream, "400 Bad Request", r#"{"error":"Missing id parameter"}"#, None);
+                return;
+            }
+            match TIMER_MANAGER.cancel(id) {
+                Ok(timer) => send_response(&mut stream, "200 OK", &format!(r#"{{"status":"ok","cancelled_timer":{{"id":{},"name":"{}"}}}}"#, timer.id, timer.name), None),
+                Err(e) => send_response(&mut stream, "400 Bad Request", &format!(r#"{{"error":"{}"}}"#, e), None),
+            }
+        }
+        
+        
         ("GET", "/alarms") | ("GET", "/api/alarms") => {
             match run_yo_command(&["alarm", "--list"]) {
                 Ok(output) => send_response(&mut stream, "200 OK", &output, None),
@@ -1462,13 +1765,15 @@ fn main() {
         
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
-        dt_error("Usage: yo api");
+        dt_error("Usage: zigduck-api");
         std::process::exit(1);
     }
 
     let host = &args[1];
     let port = &args[2];
     let address = format!("{}:{}", host, port);
+
+    start_timer_thread(TIMER_MANAGER.clone());
 
     // 🦆 says ⮞ port in use?
     if TcpListener::bind(&address).is_err() {

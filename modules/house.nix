@@ -211,7 +211,7 @@
     (types.submodule {
       options = {
         type = mkOption {
-          type = types.enum ["mqtt" "shell" "scene"];
+          type = types.enum ["mqtt" "shell" "scene" "wait"];
           default = "shell";
           description = "Type of automation action";
         };
@@ -235,6 +235,11 @@
           default = null;
           description = "Scene name (for scene type)";
         };
+        duration = mkOption {
+          type = types.nullOr types.int;
+          default = null;
+          description = "Duration in seconds (for wait type)";
+        };                
       };
     })
   ];
