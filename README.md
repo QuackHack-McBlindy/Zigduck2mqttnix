@@ -11,7 +11,8 @@ Nix for configuration, Rust for responsive async runtime.
 Under the hood: zigbee2mqtt, Mosquitto, serde_json and adb.   
   
 Define once, forget forever.   
-
+  
+An optional dashboard page is generated from the defined Nix configuration to display customized cards as well as scene activation and device control on-the-fly.   
  
 
 ```markdown
@@ -32,8 +33,8 @@ Define once, forget forever.
           Devices
 ```
 
- 
-
+<br>
+Want to top it off with declarative voice control? See [yo](http://github.com/QuackHack-McBlindy/yo)
 <br> 
  
  
@@ -77,6 +78,9 @@ Use `Zigduck2mqttnix`:
       api.enable = true;
       api.port = 13335;
       api.passwordFile = config.sops.secrets.api.path;
+      dashboard.enable = true;
+      dashboard.port = 13336;
+      dashboard.passwordFile = config.sops.secrets.dashboard.path;
       broker = "192.168.1.110";
       cli.broker = "192.168.1.110";      
       extraEnv.PATH = 
@@ -392,6 +396,49 @@ Media (optional)
 ```
 
 <br>
+
+</details>
+
+
+<details><summary><strong>
+Dashboard (Optional) 
+</strong></summary>
+
+**Example configuraiton:**  
+
+
+```
+    house.dashboard = {
+      statusCards = {    
+        temperature = {
+          enable = true;
+          title = "TEMPERATURE C";
+          group = "sensors";
+          icon = "fas fa-thermometer-half";
+          color = "#e74c3c";
+          theme = "glass";
+          filePath = "/var/lib/zigduck/temperature.json";          
+          jsonField = "temperature";
+          format = "{value} °C";
+          detailsFormat = "Temperature in Hallway";
+          chart = true;
+          historyField = "history";
+        };         
+      };
+      
+      # optional extra custom dashboard pages
+      pages = {    
+        "3" = {
+          icon = "fas fa-television";
+          title = "remote";
+          # symlink optional files/directories to webserver
+          files = { tv = "/var/lib/zigduck/tv"; };
+          css = # css code
+          code = # html code
+        };  
+    };  
+```
+
 
 </details>
 

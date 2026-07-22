@@ -18,8 +18,6 @@
     in
       lib.lists.flatten (lib.attrsets.mapAttrsToList processEntry entries);      
 in { 
-    imports = [ ./house.nix ];# ++
-        #(importModulesRecursive ./services) ++
-       #(importModulesRecursive ./services);
+    imports = [ ./house.nix ./dashboard.nix ];
         
    }
