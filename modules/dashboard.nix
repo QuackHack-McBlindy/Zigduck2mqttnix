@@ -2358,27 +2358,20 @@ in {
           // cfg.extraEnv;
       in mapAttrsToList (name: value: "${name}=${value}") env;
     };
-
-    systemd.services.zigduck-dashfiles = {
-      description = "writes Zigduck dashboard files";
-      after = [ "network.target" "zigduck.service" ];
-      wantedBy = [ "multi-user.target" ];  
-      serviceConfig = {
-        Type = "simple";
-        StateDirectory = "zigduck";
-        StateDirectoryMode = "0750";
-        WorkingDirectory = cfg.stateDir;
-        ExecStart = "${write-dash}/bin/write-dash";
-        Restart = "on-failure";
-        RestartSec = "45s";
-
-      };
-
+  };
+  
+  systemd.services.zigduck-dashfiles = {
+    description = "writes Zigduck dashboard files";
+    after = [ "network.target" "zigduck.service" ];
+    wantedBy = [ "multi-user.target" ];  
+    serviceConfig = {
+      Type = "simple";
+      StateDirectory = "zigduck";
+      StateDirectoryMode = "0750";
+      WorkingDirectory = cfg.stateDir;
+      ExecStart = "${write-dash}/bin/write-dash";
+      Restart = "on-failure";
+      RestartSec = "45s";
     };
-      
-  })
 
-
-
-
-  }
+  };}
