@@ -2316,12 +2316,12 @@ in {
     };
 
   # 🦆 says ⮞ favicons
-  environment.etc."favicon-32x32.png".source = ./../icons/favicon-32x32.png;
-  environment.etc."favicon-16x16.png".source = ./../icons/favicon-16x16.png;
-  environment.etc."favicon.ico".source = ./../icons/favicon.ico;
-  environment.etc."apple-touch-icon.png".source = ./../icons/apple-touch-icon.png;
-  environment.etc."android-chrome-512x512.png".source = ./../icons/android-chrome-512x512.png;
-  environment.etc."android-chrome-192x192.png".source = ./../icons/android-chrome-192x192.png;
+  environment.etc."favicon-32x32.png".source = ./../static/icons/favicon-32x32.png;
+  environment.etc."favicon-16x16.png".source = ./../static/icons/favicon-16x16.png;
+  environment.etc."favicon.ico".source = ./../static/icons/favicon.ico;
+  environment.etc."apple-touch-icon.png".source = ./../static/icons/apple-touch-icon.png;
+  environment.etc."android-chrome-512x512.png".source = ./../static/icons/android-chrome-512x512.png;
+  environment.etc."android-chrome-192x192.png".source = ./../static/icons/android-chrome-192x192.png;
 
   # 🦆 says ⮞ lastly a manifest 4 iOS "app" 
   environment.etc."site.webmanifest".source = iOSmanifest;
