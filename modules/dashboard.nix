@@ -2449,47 +2449,48 @@ in {
   # 🦆 says ⮞ lastly a manifest 4 iOS "app" 
   environment.etc."site.webmanifest".source = iOSmanifest;
 
-  systemd.services.zigduck-dashboard = {
-    description = "Zigduck dashboard Service";
-    after = [ "network.target" "zigduck.service" ];
-    wantedBy = [ "multi-user.target" ];
-  
-    serviceConfig = {
-      Type = "simple";
-      ExecStart = ''${httpServer}/bin/serve-dashboard ${toString cfg.dashboard.host} ${toString cfg.dashboard.port}'';
-      #RuntimeDirectory = "duckdash";
-      RuntimeDirectoryMode = "0755";
-      #DynamicUser = true;
-      Restart = "on-failure";
-      RestartSec = "5s";
-      # Hardening
-      NoNewPrivileges = true;
-      PrivateTmp = true;
-      ProtectSystem = "strict";
-      ProtectHome = true;
-      #ReadWritePaths = [ "/run/duckdash" ];
-      ReadOnlyPaths = [
-        "/etc"
-        "/var/lib/zigduck"
-        (builtins.toString config.house.dashboard.passwordFile)
-      ];
+  systemd.services = lib.mkIf cfg.dashboard.enable {
+    zigduck-dashboard = {
+      description = "Zigduck dashboard Service";
+      after = [ "network.target" "zigduck.service" ];
+      wantedBy = [ "multi-user.target" ];
 
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = ''${httpServer}/bin/serve-dashboard ${toString cfg.dashboard.host} ${toString cfg.dashboard.port}'';
+        #RuntimeDirectory = "duckdash";
+        RuntimeDirectoryMode = "0755";
+        #DynamicUser = true;
+        Restart = "on-failure";
+        RestartSec = "5s";
+        # Hardening
+        NoNewPrivileges = true;
+        PrivateTmp = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        #ReadWritePaths = [ "/run/duckdash" ];
+        ReadOnlyPaths = [
+          "/etc"
+          "/var/lib/zigduck"
+          (builtins.toString config.house.dashboard.passwordFile)
+        ];
 
-      Environment = let
-        env = {
-          MQTT_BROKER = cfg.broker;
-          MQTT_USER = cfg.user;
-          MQTT_PASSWORD_FILE = cfg.passwordFile;
-          ZIGDUCK_CONFIG = cfg.configFile;
-          STATE_DIR = cfg.stateDir;
-          DT_LOG_LEVEL = "INFO";
-          DT_LOG_FILE = cfg.stateDir + "/zigduck.log";
-          PATH = "/run/current-system/sw/bin:/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:/run/current-system/sw/sbin";
-          HOME = cfg.stateDir;
-        } // optionalAttrs cfg.debug { DEBUG = "1"; }
-          // optionalAttrs (cfg.api.passwordFile != null) { API_PASSWORD_FILE = cfg.api.passwordFile; }
-          // cfg.extraEnv;
-      in mapAttrsToList (name: value: "${name}=${value}") env;
-    };
+        Environment = let
+          env = {
+            MQTT_BROKER = cfg.broker;
+            MQTT_USER = cfg.user;
+            MQTT_PASSWORD_FILE = cfg.passwordFile;
+            ZIGDUCK_CONFIG = cfg.configFile;
+            STATE_DIR = cfg.stateDir;
+            DT_LOG_LEVEL = "INFO";
+            DT_LOG_FILE = cfg.stateDir + "/zigduck.log";
+            PATH = "/run/current-system/sw/bin:/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:/run/current-system/sw/sbin";
+            HOME = cfg.stateDir;
+          } // optionalAttrs cfg.debug { DEBUG = "1"; }
+            // optionalAttrs (cfg.api.passwordFile != null) { API_PASSWORD_FILE = cfg.api.passwordFile; }
+            // cfg.extraEnv;
+        in mapAttrsToList (name: value: "${name}=${value}") env;
+      };
+    };  
 
   };}
