@@ -19,12 +19,22 @@ use rumqttc::{Client, MqttOptions, QoS};
 use anyhow::{Result, Context};
 use colored::*;
 use reqwest::blocking::Client as HttpClient;
+use clap::Subcommand;
+
  
 #[derive(Debug, Deserialize, Clone)]
 struct CliConfig {
     mosquitto: Option<MosquittoConfig>,
     hue: Option<HueConfig>,
+    api: Option<ApiConfig>,
 }
+
+#[derive(Debug, Deserialize, Clone)]
+struct ApiConfig {
+    url: Option<String>,
+    password_file: Option<String>,
+}
+
 
 #[derive(Debug, Deserialize, Clone)]
 struct MosquittoConfig {
@@ -37,6 +47,52 @@ struct MosquittoConfig {
 struct HueConfig {
     bridge_ip: Option<String>,
     password_file: Option<String>,
+}
+
+
+
+
+
+
+#[derive(Subcommand, Debug)]
+enum TimerCommands {
+    #[command(name = "timer", about = "Manage timers via the zigduck API")]
+    Timer {
+        #[command(subcommand)]
+        action: TimerAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum TimerAction {
+    List,
+    Set {
+        #[arg(long, help = "Hours")]
+        hours: Option<u32>,
+        #[arg(long, help = "Minutes")]
+        minutes: Option<u32>,
+        #[arg(long, help = "Seconds")]
+        seconds: Option<u32>,
+        #[arg(long, help = "MQTT topic to publish when timer fires")]
+        topic: String,
+        #[arg(long, help = "MQTT payload to publish")]
+        payload: String,
+        #[arg(long, help = "Human‑readable name for the timer")]
+        name: Option<String>,
+    },
+    
+    Pause {
+        #[arg(long, help = "Timer ID")]
+        id: u64,
+    },
+    Resume {
+        #[arg(long, help = "Timer ID")]
+        id: u64,
+    },
+    Cancel {
+        #[arg(long, help = "Timer ID")]
+        id: u64,
+    },
 }
 
 #[derive(Parser)]
@@ -138,6 +194,18 @@ struct Cli {
 
     #[arg(long, default_value_t = 300, requires = "cheap_mode", help = "Delay in seconds for cheap mode")]
     delay: u64,
+    
+    #[command(subcommand)]
+    command: Option<TimerCommands>,
+
+    #[arg(long, help = "zigduck API URL", env = "API_URL")]
+    api_url: Option<String>,
+
+    #[arg(long, help = "File containing API password", env = "API_PASSWORD_FILE")]
+    api_password_file: Option<PathBuf>,
+
+    #[arg(long, help = "API password directly", env = "API_PASSWORD")]
+    api_password: Option<String>,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -1013,6 +1081,105 @@ Ok(serde_json::Value::Object(payload))
 	}
 }
 
+fn api_list_timers(api_url: &str, password: &str) -> Result<()> {
+    let client = HttpClient::new();
+    let resp = client
+        .get(format!("{}/timers", api_url))
+        .header("Authorization", format!("Bearer {}", password))
+        .send()
+        .context("Failed to reach API")?;
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json()?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
+fn api_set_timer(
+    api_url: &str,
+    password: &str,
+    hours: u32,
+    minutes: u32,
+    seconds: u32,
+    topic: &str,
+    payload: &str,
+    name: Option<&str>,
+) -> Result<()> {
+    let client = HttpClient::new();
+    let mut params = vec![
+        ("hours", hours.to_string()),
+        ("minutes", minutes.to_string()),
+        ("seconds", seconds.to_string()),
+        ("topic", topic.to_string()),
+        ("payload", payload.to_string()),
+    ];
+    if let Some(n) = name {
+        params.push(("name", n.to_string()));
+    }
+    let resp = client
+        .get(format!("{}/timers/set", api_url))
+        .query(&params)
+        .header("Authorization", format!("Bearer {}", password))
+        .send()
+        .context("Failed to reach API")?;
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json()?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
+fn api_pause_timer(api_url: &str, password: &str, id: u64) -> Result<()> {
+    let client = HttpClient::new();
+    let resp = client
+        .get(format!("{}/timers/pause", api_url))
+        .query(&[("id", id.to_string())])
+        .header("Authorization", format!("Bearer {}", password))
+        .send()
+        .context("Failed to reach API")?;
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json()?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
+fn api_resume_timer(api_url: &str, password: &str, id: u64) -> Result<()> {
+    let client = HttpClient::new();
+    let resp = client
+        .get(format!("{}/timers/resume", api_url))
+        .query(&[("id", id.to_string())])
+        .header("Authorization", format!("Bearer {}", password))
+        .send()
+        .context("Failed to reach API")?;
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json()?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
+fn api_cancel_timer(api_url: &str, password: &str, id: u64) -> Result<()> {
+    let client = HttpClient::new();
+    let resp = client
+        .get(format!("{}/timers/cancel", api_url))
+        .query(&[("id", id.to_string())])
+        .header("Authorization", format!("Bearer {}", password))
+        .send()
+        .context("Failed to reach API")?;
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json()?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
+
 fn main() -> Result<()> {
     let debug = std::env::var("DEBUG").is_ok();
     if debug { std::env::set_var("DT_LOG_LEVEL", "DEBUG"); }
@@ -1065,6 +1232,30 @@ fn main() -> Result<()> {
         }
     }
 
+    let api_url = if let Some(url) = cli.api_url.clone() {
+        url
+    } else if let Some(cfg) = &config {
+        cfg.api.as_ref()
+            .and_then(|a| a.url.clone())
+            .unwrap_or_else(|| "http://192.168.1.211:13335".to_string())
+    } else {
+        "http://192.168.1.211:13335".to_string()
+    };
+
+    let api_password = if let Some(pw) = cli.api_password.clone() {
+        pw
+    } else if let Some(pf) = &cli.api_password_file {
+        fs::read_to_string(pf)?.trim().to_string()
+    } else if let Some(cfg) = &config {
+        cfg.api.as_ref()
+            .and_then(|a| a.password_file.as_ref())
+            .and_then(|pf| fs::read_to_string(pf).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
     if cli.devices_config.is_none() && !std::env::var("DEVICES_CONFIG").is_ok() {
         let default_devices = PathBuf::from("/etc/zigduck/devices.json");
         if default_devices.exists() {
@@ -1099,6 +1290,39 @@ fn main() -> Result<()> {
         cli.devices_config, cli.scenes_config,
         cli.verbose > 0,
     )?;
+
+
+    if let Some(cmd) = cli.command {
+        match cmd {
+            TimerCommands::Timer { action } => match action {
+                TimerAction::List => {
+                    api_list_timers(&api_url, &api_password)?;
+                }
+                TimerAction::Set { hours, minutes, seconds, topic, payload, name } => {
+                    let h = hours.unwrap_or(0);
+                    let m = minutes.unwrap_or(0);
+                    let s = seconds.unwrap_or(0);
+                    if h == 0 && m == 0 && s == 0 {
+                        anyhow::bail!("At least one of hours/minutes/seconds must be positive");
+                    }
+                    if topic.is_empty() || payload.is_empty() {
+                        anyhow::bail!("--topic and --payload are required");
+                    }
+                    api_set_timer(&api_url, &api_password, h, m, s, &topic, &payload, name.as_deref())?;
+                }
+                TimerAction::Pause { id } => {
+                    api_pause_timer(&api_url, &api_password, id)?;
+                }
+                TimerAction::Resume { id } => {
+                    api_resume_timer(&api_url, &api_password, id)?;
+                }
+                TimerAction::Cancel { id } => {
+                    api_cancel_timer(&api_url, &api_password, id)?;
+                }
+            },
+        }
+        return Ok(());
+    }
 
     fn parse_state(state_str: &str, brightness: &mut Option<u8>, color: &mut Option<String>) -> Result<DeviceState> {
         match state_str.to_lowercase().as_str() {

@@ -450,7 +450,11 @@ Commandline
 </strong></summary>
 
 ```
-Usage: zigduck-cli [OPTIONS]
+Usage: zigduck-cli [OPTIONS] [COMMAND]
+
+Commands:
+  timer  Manage timers via the zigduck API
+  help   Print this message or the help of the given subcommand(s)
 
 Options:
   -b, --broker <BROKER>
@@ -513,10 +517,17 @@ Options:
           Restrict scene to a specific room
       --delay <DELAY>
           Delay in seconds for cheap mode [default: 300]
+      --api-url <API_URL>
+          zigduck API URL [env: API_URL=]
+      --api-password-file <API_PASSWORD_FILE>
+          File containing API password [env: API_PASSWORD_FILE=]
+      --api-password <API_PASSWORD>
+          API password directly [env: API_PASSWORD=]
   -h, --help
           Print help (see more with '--help')
   -V, --version
           Print version
+
 
 ```
 
