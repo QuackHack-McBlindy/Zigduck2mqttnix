@@ -34,7 +34,8 @@ An optional dashboard page is generated from the defined Nix configuration to di
 ```
 
 <br>
-Want to top it off with declarative voice control? See [yo](http://github.com/QuackHack-McBlindy/yo)
+Want to top it off with declarative voice control? See [yo](http://github.com/QuackHack-McBlindy/yo)  
+See [DOCS.md](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/DOCS.md) for more text.  
 <br> 
  
  

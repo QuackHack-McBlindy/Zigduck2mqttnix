@@ -424,17 +424,19 @@ let
     </div>
   '';
 
-
   
   # 🦆 says ⮞ SERVER CONFIGURATION
-  system.activationScripts.dashboard.text = ''
-    WORKDIR="/var/lib/zigduck/dashboard"
-    mkdir -p $WORKDIR
+  httpServer = pkgs.writeShellScriptBin "serve-dashboard" ''
+    HOST=''${1:-0.0.0.0}
+    PORT=''${2:-13337}
+    CERT=''${3:-}
+    KEY=''${4:-}
+    WORKDIR=$(mktemp -d)
 
     # 🦆 says ⮞ symlink html files & manifest
-    ln -sf /etc/login.html $WORKDIR/  
+    ln -sf /etc/login.html $WORKDIR/ 
+    ln -sf /etc/script.js $WORKDIR/     
     ln -sf /etc/index.html $WORKDIR/
-    ln -sf /etc/script.js $WORKDIR/
     ln -sf /etc/static/tv.html $WORKDIR/
     ln -sf /etc/site.webmanifest $WORKDIR/
             
@@ -480,7 +482,128 @@ let
             in "ln -sf ${channel.icon} $WORKDIR/tv-icons/${channelId}.png\n"
         ) (lib.attrNames tv.channels)
     ) (lib.attrNames tvConfig)}
-      
+  
+
+    cat > $WORKDIR/simple_server.py << 'EOF'
+import http.server
+import socketserver
+import os
+import urllib.parse
+import json
+import hashlib
+import sys
+import time
+import ssl
+from pathlib import Path
+
+password_file = "${config.house.dashboard.passwordFile}"
+with open(password_file, "r") as f:
+    PASSWORD = f.read().strip()
+
+sessions = {}
+
+class SimpleAuthHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        self.directory = os.getcwd()
+        super().__init__(*args, directory=self.directory, **kwargs)
+    
+    def do_GET(self):
+        auth_cookie = self.headers.get('Cookie', "")
+        is_authenticated = False        
+        for cookie in auth_cookie.split(';'):
+            cookie = cookie.strip()
+            if cookie.startswith('auth_token='):
+                token = cookie.split('auth_token=')[1]
+                if token in sessions:
+                    is_authenticated = True
+        
+        if self.path in ['/login', '/login.html', '/submit']:
+            return super().do_GET()
+        
+        if not is_authenticated:
+            self.send_response(302)
+            self.send_header('Location', '/login.html')
+            self.end_headers()
+            return
+        
+        return super().do_GET()
+    
+    def do_POST(self):
+        if self.path == '/submit':
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            parsed_data = urllib.parse.parse_qs(post_data)
+            password = parsed_data.get('password', [""])[0]
+            
+            if password == PASSWORD:
+                import uuid
+                token = str(uuid.uuid4())
+                sessions[token] = time.time()
+                
+                self.send_response(302)
+                self.send_header('Location', '/')
+                self.send_header('Set-Cookie', f'auth_token={token}; Path=/; HttpOnly; SameSite=Lax')
+                self.send_header('Set-Cookie', f'api_password={PASSWORD}; Path=/; SameSite=Lax')   
+                self.end_headers()
+                print("Login successful!")
+            else:
+                self.send_response(401)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                self.wfile.write(b'<html><body>Access denied. <a href="/login.html">Try again</a></body></html>')
+                print("Login failed!")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        pass
+
+if __name__ == '__main__':
+    os.chdir(os.path.dirname(__file__))    
+    port = int(os.environ.get('PORT', 13337))
+    
+    cert_file = os.environ.get('CERT_FILE', "")
+    key_file = os.environ.get('KEY_FILE', "")
+    
+    httpd = socketserver.TCPServer(("", port), SimpleAuthHandler)
+    
+    ssl_context = None
+    if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file):
+        try:
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.load_cert_chain(cert_file, key_file)
+            
+            httpd.socket = ssl_context.wrap_socket(httpd.socket, server_side=True)
+            print(f"🦆 HTTPS server started on https://0.0.0.0:{port}")
+            
+        except Exception as e:
+            print(f"🦆 SSL setup failed: {e}, falling back to HTTP")
+            print(f"🦆 HTTP server started on http://0.0.0.0:{port}")
+    else:
+        print(f"🦆 No SSL certificates found, starting HTTP server on http://0.0.0.0:{port}")
+        print(f"🦆 Cert file: {cert_file}, Key file: {key_file}")
+    
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        httpd.shutdown()
+EOF
+
+    export PORT=$PORT
+    export CERT_FILE="$CERT"
+    export KEY_FILE="$KEY"
+    cd $WORKDIR
+    
+    if [ -n "$CERT" ] && [ -n "$KEY" ]; then
+        echo "🦆 Starting SECURE dashboard server on https://$HOST:$PORT"
+    else
+        echo "🦆 Starting INSECURE dashboard server on http://$HOST:$PORT"
+        echo "🦆 Warning: No SSL certificates provided, audio streaming may not work on mobile!"
+    fi
+    
+    echo "🦆 Starting dashboard server on http://$HOST:$PORT"
+    ${pkgs.python3}/bin/python3 simple_server.py
   '';
 
   customPagesHtml = let
@@ -2333,14 +2456,24 @@ in {
   
     serviceConfig = {
       Type = "simple";
-      User = "zigduck";
-      Group = "zigduck";
-      StateDirectory = "zigduck";
-      StateDirectoryMode = "0750";
-      WorkingDirectory = cfg.stateDir;
-      ExecStart = "${zigduckPkgs.zigduck-dashboard}/bin/zigduck-dashboard --password-file ${cfg.dashboard.passwordFile} --port ${toString cfg.dashboard.port} --workdir ${cfg.stateDir}";
+      ExecStart = ''${httpServer}/bin/serve-dashboard ${toString cfg.dashboard.host} ${toString cfg.dashboard.port}'';
+      #RuntimeDirectory = "duckdash";
+      RuntimeDirectoryMode = "0755";
+      #DynamicUser = true;
       Restart = "on-failure";
-      RestartSec = "45s";
+      RestartSec = "5s";
+      # Hardening
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectSystem = "strict";
+      ProtectHome = true;
+      #ReadWritePaths = [ "/run/duckdash" ];
+      ReadOnlyPaths = [
+        "/etc"
+        "/var/lib/zigduck"
+        (builtins.toString config.house.dashboard.passwordFile)
+      ];
+
 
       Environment = let
         env = {
@@ -2358,7 +2491,5 @@ in {
           // cfg.extraEnv;
       in mapAttrsToList (name: value: "${name}=${value}") env;
     };
-  };
-  
 
   };}

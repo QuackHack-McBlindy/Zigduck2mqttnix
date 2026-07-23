@@ -608,9 +608,6 @@ in {
       environment.systemPackages = [ zigduckPkgs.zigduck-cli ];
     })
     
-    (mkIf cfg.dashboard.enable {
-      environment.systemPackages = [ zigduckPkgs.zigduck-dashboard ];      
-    })
   
     {
       environment.systemPackages = [ zigduckPkgs.zigduck-rs ];
