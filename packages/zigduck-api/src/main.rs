@@ -46,6 +46,17 @@ fn start_timer_thread(manager: Arc<TimerManager>) {
 
                     for id in due_ids {
                         if let Some(timer) = timers.remove(&id) {
+                            let finished_payload = json!({
+                                "timer_id": timer.id,
+                                "name": timer.name,
+                                "status": "finished"
+                            }).to_string();
+
+                            let _ = std::process::Command::new("mosquitto_pub")
+                                .arg("-t").arg("zigduck/timer/finished")
+                                .arg("-m").arg(&finished_payload)
+                                .spawn();
+
                             match &timer.action {
                                 TimerAction::MqttMessage { topic, payload } => {
                                     let _ = std::process::Command::new("mosquitto_pub")
@@ -69,6 +80,7 @@ fn start_timer_thread(manager: Arc<TimerManager>) {
         }
     });
 }
+
 
 
 type TimerId = u64;
