@@ -368,7 +368,7 @@ in {
   config = mkMerge [
     (mkIf cfg.enable {
       environment.systemPackages = [ 
-        pkgs.clang
+        #pkgs.clang
         pkgs.mosquitto
         pkgs.zigbee2mqtt      
       ];
@@ -587,9 +587,6 @@ in {
         };
       };
 
-
-
-
       systemd.tmpfiles.rules = [
         "d ${cfg.stateDir} 0755 zigduck zigduck - -"
         "d ${cfg.stateDir}/timers 0755 zigduck zigduck - -"
@@ -602,10 +599,18 @@ in {
         "d ${cfg.stateDir}/.config/duckTrace 0750 zigduck zigduck - -"
         "d ${cfg.stateDir}/intent_data 0750 zigduck zigduck - -"
       ];
+      
+      environment.etc."dark-time.conf".text = ''
+        DARK_TIME_ENABLED="${if config.house.zigbee.darkTime.enable then "1" else "0"}"
+        DARK_TIME_START="${config.house.zigbee.darkTime.start}"
+        DARK_TIME_END="${config.house.zigbee.darkTime.end}"
+      '';    
+      
     })
 
     (mkIf cfg.cli.enable {
-      environment.systemPackages = [ zigduckPkgs.zigduck-cli ];
+      environment.systemPackages = [ zigduckPkgs.zigduck-cli pkgs.mosquitto ];
+      
     })
     
   
@@ -625,8 +630,22 @@ in {
         home = cfg.stateDir;
         createHome = true;
       };
-  
+      users.users.zigbee2mqtt = {
+        isSystemUser = true;
+        group = "zigbee2mqtt";
+        home = "/var/lib/zigbee";
+        createHome = true;
+      }; 
+
+      users.groups.zigbee2mqtt = {};  
       users.groups.zigduck = { };
+      
+      services.udev.extraRules = let
+        port = config.house.zigbee.coordinator;
+      in
+        ''
+          SUBSYSTEM=="tty", ATTRS{idVendor}=="${port.vendorId}", ATTRS{idProduct}=="${port.productId}", SYMLINK+="${port.symlink}"
+        '';
     }
     
   ];}

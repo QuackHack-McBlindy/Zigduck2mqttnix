@@ -395,6 +395,13 @@ Media (optional)
       otherVideos = "/Pool/Other_Videos"; 
       podcasts = "/Pool/Podcasts";
     };
+    
+    tv = {
+      "my-tv" = {
+        ip = "192.168.1.123";
+        room = "bedroom";
+      };    
+    };    
   };
 ```
 
@@ -534,6 +541,41 @@ Options:
 <br>
 
 </details>
+
+
+<details><summary><strong>
+tv (CLI)
+</strong></summary>
+
+
+**Android tvOS controller**  
+
+
+
+```
+Remote control & cast media to an Android TV device via ADB
+
+Usage: tv [OPTIONS] --typ <TYP>
+
+Options:
+  -t, --typ <TYP>              Media type (tv, movie, music, song, podcast, musicvideo, audiobook, othervideo, jukebox, up, down, next, previous, pause, play)
+  -s, --search <SEARCH>        Search query (fuzzy matched)
+      --season <SEASON>        Season number (for tv)
+      --room <ROOM>            Room name (maps to IP from config)
+      --ip <IP>                Device IP override
+      --no-shuffle             Disable shuffle
+      --max-items <MAX_ITEMS>  Max playlist items
+      --config <CONFIG>        Config file path [default: /etc/zigduck/tv-defaults.json]
+  -h, --help                   Print help
+
+```
+
+
+
+<br>
+
+</details>
+
 
 
 <details><summary><strong>

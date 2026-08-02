@@ -18,6 +18,6 @@
     in
       lib.lists.flatten (lib.attrsets.mapAttrsToList processEntry entries);      
 in { 
-    imports = [ ./house.nix ./dashboard.nix ];
+    imports = [ ./options.nix ./dashboard.nix ];
         
    }
