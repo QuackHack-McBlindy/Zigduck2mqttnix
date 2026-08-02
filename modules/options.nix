@@ -16,6 +16,7 @@
     musicVideos = root + "/Music_Videos";
     otherVideos = root + "/Other_Videos";
     podcasts = root + "/Podcasts";
+    audiobooks = root + "/Audiobooks";
   };
 
   zigbeeDevices = config.house.zigbee.devices;
@@ -1102,6 +1103,7 @@ in {
           musicVideos = lib.mkIf (!(lib.hasAttr "musicVideos" config.house.media)) (lib.mkDefault defaults.musicVideos);
           otherVideos = lib.mkIf (!(lib.hasAttr "otherVideos" config.house.media)) (lib.mkDefault defaults.otherVideos);
           podcasts = lib.mkIf (!(lib.hasAttr "podcasts" config.house.media)) (lib.mkDefault defaults.podcasts);
+          audiobooks = lib.mkIf (!(lib.hasAttr "audiobooks" config.house.media)) (lib.mkDefault defaults.audiobooks);
         };
       }))
         
