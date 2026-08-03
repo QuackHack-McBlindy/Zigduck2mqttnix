@@ -460,7 +460,8 @@ Commandline
 Usage: zigduck-cli [OPTIONS] [COMMAND]
 
 Commands:
-  timer  Manage timers via the zigduck API
+  timer  
+  alarm  
   help   Print this message or the help of the given subcommand(s)
 
 Options:
@@ -535,17 +536,10 @@ Options:
   -V, --version
           Print version
 
-
 ```
 
 <br>
 
-</details>
-
-
-<details><summary><strong>
-tv (CLI)
-</strong></summary>
 
 
 **Android tvOS controller**  
@@ -588,41 +582,53 @@ API
 
 | Endpoint | Method | Description | Parameters | Auth Required |
 |----------|--------|-------------|------------|---------------|
-| `/` | GET | Service information and list of available endpoints | None | Yes |
-| `/transcode-video` | GET | Streams transcoded video from a given URL (MP4 with chunked transfer) | `url` (URL to transcode) | Yes |
-| `/browse` | GET | Browse media directory using `ls` (legacy) | `path` (directory path relative to `/Pool`) | Yes |
-| `/browsev2` | GET | Browse media directory using `find` with extended info | `path` (directory path relative to `/Pool`) | Yes |
-| `/add` | GET | Add a file to the VLC playlist | `path` (file path) | Yes |
-| `/add_folder` | GET | Add a folder (recursively) to the VLC playlist | `path` (folder path) | Yes |
+| `/` | GET | Service info and list of all endpoints | None | Yes |
+| `/transcode-video`<br>`/api/transcode-video` | GET | Streams transcoded video from a given URL (MP4, chunked transfer) | `url` (URL to transcode) | Yes |
+| `/browse`<br>`/browsev2`<br>`/api/browse`<br>`/api/browsev2` | GET | Browse media directory (legacy `ls` or improved `find`). `browsev2` returns full path. | `path` (relative to media root) | Yes |
+| **Timers** | | | | |
 | `/timers` | GET | List all timers | None | Yes |
-| `/alarms` | GET | List all alarms | None | Yes |
-| `/shopping` (or `/shopping-list`) | GET | List shopping items | None | Yes |
-| `/reminders` (or `/remmind`) | GET | List reminders | None | Yes |
-| `/media/power/on` | GET | Wake up media device via ADB | `device` (IP, default `192.168.1.224`) | Yes |
-| `/media/power/off` | GET | Put media device to sleep via ADB | `device` (IP, default `192.168.1.224`) | Yes |
-| `/media/next` | GET | Send "next track" command via ADB | `device` (IP, default `192.168.1.224`) | Yes |
-| `/media/previous` | GET | Send "previous track" command via ADB | `device` (IP, default `192.168.1.224`) | Yes |
-| `/media/play` or `/media/pause` | GET | Toggle play/pause via ADB | `device` (IP, default `192.168.1.224`) | Yes |
-| `/media/volume/up` | GET | Increase volume via ADB | `device` (IP, default `192.168.1.224`) | Yes |
-| `/media/volume/down` | GET | Decrease volume via ADB | `device` (IP, default `192.168.1.224`) | Yes |
-| `/media/playlist` | GET | Start a playlist on media device (ADB intent) | `device` (IP), `url` (optional, defaults to webserver URL) | Yes |
-| `/playlist` | GET | Get current VLC playlist (JSON) | None | Yes |
-| `/playlist/remove` | GET | Remove an item from the VLC playlist by index | `index` (zero‑based) | Yes |
-| `/playlist/clear` | GET | Clear the entire VLC playlist | None | Yes |
-| `/playlist/shuffle` | GET | Shuffle the current VLC playlist | None | Yes |
-| `/health` | GET | Basic health check (no authentication) | None | No |
-| `/health/all` | GET | Aggregate health data from all services (no authentication) | None | No |
-| `/state` | GET | Full state of all Zigbee devices (from `/var/lib/zigduck/state.json`) | None | Yes |
-| `/state/{device}` | GET | State of a specific device | `{device}` (device name) | Yes |
-| `/state/room/{room}` | GET | State of all devices in a given room | `{room}` (room name) | Yes |
-| `/device/list` | GET | List all devices (from `devices.json`) | None | Yes |
-| `/device/{device}/{command}/{value}...` | GET | Control a device with one or more commands (e.g., `state/on`, `brightness/200`, `color/%23FF5733`, `temperature/300`). Multiple commands can be chained. | `{device}` (name), `{command}` (action), `{value}` (argument) | Yes |
-| `/scene/{scene}` | GET | Activate a scene by name (from `scenes.json`) | `{scene}` (scene name) | Yes |
-| `/device/rooms` | GET | List devices grouped by room (from `rooms.json`) | None | Yes |
-| `/device/types` | GET | List devices grouped by type (from `types.json`) | None | Yes |
-| `/tts` | GET | Text‑to‑speech, returns an audio/wav file | `text` (text to speak) | Yes |
-| `/do` | GET | Execute a natural language command (e.g., `?cmd=do turn on light`) | `cmd` (command string) | Yes |
-| `/upload` | POST | Upload a file (multipart/form‑data) to `/var/lib/zigduck/uploads` | File data in body | Yes |
+| `/timers/set` | GET | Create a new timer | `hours`, `minutes`, `seconds` (at least one >0), `topic`, `payload`, optional `name` | Yes |
+| `/timers/pause` | GET | Pause a running timer | `id` (timer ID) | Yes |
+| `/timers/resume` | GET | Resume a paused timer | `id` | Yes |
+| `/timers/cancel` | GET | Cancel (delete) a timer | `id` | Yes |
+| **Alarms** | | | | |
+| `/alarms`<br>`/api/alarms` | GET | List all alarms | None | Yes |
+| `/alarms/add`<br>`/api/alarms/add` | GET | Add a new alarm | `hours` (0-23), `minutes` (0-59), `name`, optional `days` (comma-separated 0=Sun..6=Sat) | Yes |
+| `/alarms/remove`<br>`/api/alarms/remove` | GET | Remove an alarm | `id` | Yes |
+| `/alarms/toggle`<br>`/api/alarms/toggle` | GET | Toggle alarm on/off | `id` | Yes |
+| **Media (ADB)** | | | | |
+| `/media/power/on`<br>`/api/media/power/on` | GET | Wake up media device | `device` (IP, default `192.168.1.224`) | Yes |
+| `/media/power/off`<br>`/api/media/power/off` | GET | Sleep media device | `device` | Yes |
+| `/media/next` | GET | Next track | `device` | Yes |
+| `/media/previous` | GET | Previous track | `device` | Yes |
+| `/media/play`<br>`/media/pause` | GET | Toggle play/pause | `device` | Yes |
+| `/media/volume/up` | GET | Volume up | `device` | Yes |
+| `/media/volume/down` | GET | Volume down | `device` | Yes |
+| `/media/playlist` | GET | Launch playlist on device (ADB intent) | `device`, optional `url` (defaults to webserver `/playlist.m3u`) | Yes |
+| **Playlist (m3u file)** | | | | |
+| `/playlist/list` | GET | List current m3u playlist | None | Yes |
+| `/playlist/add` | GET | Add entry to playlist | `entry` (path) | Yes |
+| `/playlist/remove` | GET | Remove entry by index (0-based) | `index` | Yes |
+| `/playlist/shuffle` | GET | Shuffle playlist | None | Yes |
+| `/playlist/clear` | GET | Clear entire playlist | None | Yes |
+| **Health** (no auth) | | | | |
+| `/health`<br>`/api/health` | GET | Basic health check | None | No |
+| `/health/all`<br>`/api/health/all` | GET | Aggregate health from all services | None | No |
+| **State** | | | | |
+| `/state`<br>`/api/state` | GET | Full state of all Zigbee devices | None | Yes |
+| `/state/{device}`<br>`/api/state/{device}` | GET | State of a specific device | `{device}` (friendly name) | Yes |
+| `/state/room/{room}`<br>`/api/state/room/{room}` | GET | State of all devices in a room | `{room}` | Yes |
+| **Devices & Scenes** | | | | |
+| `/device/list`<br>`/api/device/list` | GET | List all devices (from `devices.json`) | None | Yes |
+| `/device/{device}/{command}/{value}...` | GET | Control a device (multiple commands can be chained) | `{device}` name, then pairs like `state/on`, `brightness/200`, `color/%23FF5733`, `temperature/300` | Yes |
+| `/device/rooms`<br>`/api/device/rooms` | GET | List devices grouped by room | None | Yes |
+| `/device/types`<br>`/api/device/types` | GET | List devices grouped by type | None | Yes |
+| `/scene/{scene}`<br>`/api/scene/{scene}` | GET | Activate a scene | `{scene}` (scene name) | Yes |
+| **Utilities** | | | | |
+| `/tts` | GET | Text‑to‑speech, returns audio/wav | `text` | Yes |
+| `/do`<br>`/api/do` | GET | Natural language command (e.g., `?cmd=do turn on kitchen light`) | `cmd` | Yes |
+| `/upload`<br>`/api/upload` | POST | File upload (multipart/form‑data) to `/var/lib/zigduck/uploads` | File data in body | Yes |
+
 
 <br>
 

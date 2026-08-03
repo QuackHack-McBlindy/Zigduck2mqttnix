@@ -26,6 +26,7 @@
   allTVs = builtins.attrValues config.house.tv;
   defaultIP = if allTVs == [] then "127.0.0.1" else (builtins.head allTVs).ip;
   directories = {
+    root        = config.house.media.root;
     tv          = config.house.media.tv;
     movie       = config.house.media.movies;
     music       = config.house.media.music;
@@ -62,11 +63,6 @@
 
 
   jsonFormat = pkgs.formats.json { };
-  apiConfig = {
-    password_file = config.house.dashboard.passwordFile;
-    data_dir = "/var/lib/zigduck";
-  };
-  apiConfigFile = jsonFormat.generate "api.json" apiConfig;
 
 in {
     imports = [ ./zigduck.nix ./assertions.nix ./helpers.nix ];
@@ -91,38 +87,51 @@ in {
           description = "Root directory for all media";
         };
 
+        playlistFile = mkOption {
+          type = types.nullOr types.path;
+          default = config.house.media.root + "/playlist.m3u";
+          description = "Filepath for default playlist";
+        };
+        
         movies = mkOption {
           type = types.path;
+          default = config.house.media.root + "/Movies";
           description = "Movies directory";
         };
 
         tv = mkOption {
           type = types.path;
+          default = config.house.media.root + "/TV";
           description = "TV shows directory";
         };
 
         music = mkOption {
           type = types.path;
+          default = config.house.media.root + "/Music";
           description = "Music directory";
         };
 
         musicVideos = mkOption {
           type = types.path;
+          default = config.house.media.root + "/Music_Videos";
           description = "Music videos directory";
         };
 
         otherVideos = mkOption {
           type = types.path;
+          default = config.house.media.root + "/Other_Videos";
           description = "Other videos directory";
         };
 
         podcasts = mkOption {
           type = types.path;
+          default = config.house.media.root + "/Podcasts";
           description = "Podcasts directory";
         };
 
         audiobooks = mkOption {
           type = types.path;
+          default = config.house.media.root + "/Audiobooks";
           description = "Audiobook directory";
         };
         
@@ -1092,25 +1101,8 @@ in {
       };
   
 
-    config = lib.mkMerge [
-      (lib.mkIf (config.house.media.root != null) (let
-        defaults = defaultPaths config.house.media.root;
-      in {
-        house.media = {
-          movies = lib.mkIf (!(lib.hasAttr "movies" config.house.media)) (lib.mkDefault defaults.movies);
-          tv = lib.mkIf (!(lib.hasAttr "tv" config.house.media)) (lib.mkDefault defaults.tv);
-          music = lib.mkIf (!(lib.hasAttr "music" config.house.media)) (lib.mkDefault defaults.music);
-          musicVideos = lib.mkIf (!(lib.hasAttr "musicVideos" config.house.media)) (lib.mkDefault defaults.musicVideos);
-          otherVideos = lib.mkIf (!(lib.hasAttr "otherVideos" config.house.media)) (lib.mkDefault defaults.otherVideos);
-          podcasts = lib.mkIf (!(lib.hasAttr "podcasts" config.house.media)) (lib.mkDefault defaults.podcasts);
-          audiobooks = lib.mkIf (!(lib.hasAttr "audiobooks" config.house.media)) (lib.mkDefault defaults.audiobooks);
-        };
-      }))
-        
-
-            
-      {      
-          environment.etc."zigduck/api.json".source = apiConfigFile;
+    config = lib.mkMerge [            
+      {
           environment.etc."zigduck/tv-defaults.json".source = tvDefaultsJsonFile;
       }
 

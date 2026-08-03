@@ -16,19 +16,19 @@ categories = [
 ]
 
 [dependencies]
-barely-fuzzy      = { path = "src/barely-fuzzy", features = ["alloc"] }
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-rand = "0.8"    
-chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4.4", features = ["derive", "env"] }
-rumqttc = "0.22"
-anyhow = "1.0"
-colored = "2.1"
-reqwest = { version = "0.11", features = ["blocking", "json"] }
-multipart = "0.18"
-walkdir = "2"
+barely-fuzzy = { version = "0.1.0", features = ["alloc"] }
+tokio        = { version = "1.0", features = ["full"] }
+serde        = { version = "1.0", features = ["derive"] }
+serde_json   = "1.0"
+rand         = "0.8"    
+chrono       = { version = "0.4", features = ["serde"] }
+clap         = { version = "4.4", features = ["derive", "env"] }
+rumqttc      = "0.22"
+anyhow       = "1.0"
+colored      = "2.1"
+reqwest      = { version = "0.11", features = ["blocking", "json"] }
+multipart    = "0.18"
+walkdir      = "2"
 
 [[bin]]
 name = "tv"

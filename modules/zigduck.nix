@@ -212,6 +212,10 @@ let
       };
       double_click_timeout_ms = house.zigbee.dimmer.doubleClickTimeout;
     };
+    api = {
+      url = "http://${config.services.zigduck.cli.broker}:${toString config.services.zigduck.api.port}";
+      password_file = config.services.zigduck.api.passwordFile;
+    };
   };
 
   zigduckConfigFile = jsonFormat.generate "config.json" mainConfig;
@@ -368,7 +372,6 @@ in {
   config = mkMerge [
     (mkIf cfg.enable {
       environment.systemPackages = [ 
-        #pkgs.clang
         pkgs.mosquitto
         pkgs.zigbee2mqtt      
       ];

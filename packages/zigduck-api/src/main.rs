@@ -4,24 +4,204 @@ use std::process::Command;
 use std::fs::{self, create_dir_all};
 use std::env;
 use std::io::Write;
-use serde_json::{Value, json, Map};
-use ducktrace_logger::*;
 use std::sync::{Arc, Mutex, Condvar};
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+
+use serde::{Serialize, Deserialize};
+use serde_json::{Value, json, Map};
+use rand::seq::SliceRandom;
+use ducktrace_logger::*;
 use lazy_static::lazy_static;
-
-lazy_static! {
-    static ref TIMER_MANAGER: Arc<TimerManager> = TimerManager::new();
-}
-
 
 
 fn log(message: &str) {
     eprintln!("[API] {}", message);
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TvDefaults {
+    directories: Directories,
+    playlist_file: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Directories {
+    root: Option<String>,
+}
+
+lazy_static! {
+    static ref CONFIG: (String, String) = {
+        let config_path = "/etc/zigduck/tv-defaults.json";
+        let default_root = "/Pool".to_string();
+        let default_playlist = "/Pool/playlist.m3u".to_string();
+
+        match fs::read_to_string(config_path) {
+            Ok(content) => {
+                let config: TvDefaults = serde_json::from_str(&content).unwrap_or_else(|e| {
+                    log(&format!("Failed to parse config, using defaults: {}", e));
+                    TvDefaults {
+                        directories: Directories { root: Some(default_root.clone()) },
+                        playlist_file: Some(default_playlist.clone()),
+                    }
+                });
+                let root = config.directories.root.unwrap_or(default_root);
+                let playlist = config.playlist_file.unwrap_or(default_playlist);
+                (root, playlist)
+            }
+            Err(e) => {
+                log(&format!("Could not read config file {}: {}; using defaults", config_path, e));
+                (default_root, default_playlist)
+            }
+        }
+    };
+}
+
+fn get_playlist_path() -> &'static str {
+    &CONFIG.1
+}
+
+fn get_root_dir() -> &'static str {
+    &CONFIG.0
+}
+
+
+lazy_static! {
+    static ref TIMER_MANAGER: Arc<TimerManager> = TimerManager::new();
+}
+
+lazy_static! {
+    static ref PLAYLIST_MUTEX: Mutex<()> = Mutex::new(());
+}
+
+use chrono::{Local, Datelike, Timelike, NaiveTime};
+
+const ALARMS_FILE: &str = "/var/lib/zigduck/alarms.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Alarm {
+    id: u64,
+    name: String,
+    hour: u8,
+    minute: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    days: Option<Vec<u8>>,
+    enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_fired: Option<String>,
+}
+
+struct AlarmManager {
+    next_id: AtomicU64,
+    alarms: Mutex<Vec<Alarm>>,
+    condvar: Condvar,
+}
+
+impl AlarmManager {
+    fn new() -> Arc<Self> {
+        let alarms: Vec<Alarm> = match fs::read_to_string(ALARMS_FILE) {
+            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+        let max_id = alarms.iter().map(|a| a.id).max().unwrap_or(0);
+        Arc::new(Self {
+            next_id: AtomicU64::new(max_id + 1),
+            alarms: Mutex::new(alarms),
+            condvar: Condvar::new(),
+        })
+    }
+
+    fn save_to_file(&self) {
+        let alarms = self.alarms.lock().unwrap();
+        if let Ok(json) = serde_json::to_string_pretty(&*alarms) {
+            let _ = fs::create_dir_all("/var/lib/zigduck");
+            let _ = fs::write(ALARMS_FILE, json);
+        }
+    }
+
+
+    fn add(&self, hour: u8, minute: u8, days: Option<Vec<u8>>, name: String) -> u64 {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let alarm = Alarm {
+            id,
+            name,
+            hour,
+            minute,
+            days,
+            enabled: true,
+            last_fired: None,
+        };
+        self.alarms.lock().unwrap().push(alarm);
+        self.save_to_file();
+        self.condvar.notify_one();
+        id
+    }
+
+    fn remove(&self, id: u64) -> Result<Alarm, String> {
+        let mut alarms = self.alarms.lock().unwrap();
+        if let Some(pos) = alarms.iter().position(|a| a.id == id) {
+            let alarm = alarms.remove(pos);
+            self.save_to_file();
+            self.condvar.notify_one();
+            Ok(alarm)
+        } else {
+            Err("Alarm not found".into())
+        }
+    }
+
+    fn toggle(&self, id: u64) -> Result<Alarm, String> {
+        let mut alarms = self.alarms.lock().unwrap();
+        if let Some(alarm) = alarms.iter_mut().find(|a| a.id == id) {
+            alarm.enabled = !alarm.enabled;
+            let cloned = alarm.clone();
+            self.save_to_file();
+            self.condvar.notify_one();
+            Ok(cloned)
+        } else {
+            Err("Alarm not found".into())
+        }
+    }
+
+    fn list(&self) -> Vec<Alarm> {
+        self.alarms.lock().unwrap().clone()
+    }
+
+
+    fn next_trigger_time(&self) -> Option<NaiveTime> {
+        let now = Local::now();
+        let today = now.date_naive();
+        let current_time = now.time();
+
+        self.alarms.lock().unwrap()
+            .iter()
+            .filter(|a| a.enabled)
+            .filter_map(|a| {
+                let alarm_time = NaiveTime::from_hms_opt(a.hour as u32, a.minute as u32, 0)?;
+                if alarm_time > current_time {
+                    Some(alarm_time)
+                } else {
+                    None
+                }
+            })
+            .min()
+    }
+}
+
+lazy_static! {
+    static ref ALARM_MANAGER: Arc<AlarmManager> = AlarmManager::new();
+}
+
+fn get_mqtt_credentials() -> Option<(String, String)> {
+    let user = std::env::var("MQTT_USER").ok()?;
+    let password_file = std::env::var("MQTT_PASSWORD_FILE").ok()?;
+    let password = std::fs::read_to_string(&password_file)
+        .map(|s| s.trim().to_owned())
+        .ok()?;
+    Some((user, password))
+}
+
 
 fn start_timer_thread(manager: Arc<TimerManager>) {
     std::thread::spawn(move || {
@@ -52,17 +232,55 @@ fn start_timer_thread(manager: Arc<TimerManager>) {
                                 "status": "finished"
                             }).to_string();
 
-                            let _ = std::process::Command::new("mosquitto_pub")
-                                .arg("-t").arg("zigduck/timer/finished")
-                                .arg("-m").arg(&finished_payload)
-                                .spawn();
+                            let mut cmd_finished = std::process::Command::new("mosquitto_pub");
+                            cmd_finished
+                                .arg("-t").arg("zigbee2mqtt/timer/finished")
+                                .arg("-m").arg(&finished_payload);
 
-                            match &timer.action {
-                                TimerAction::MqttMessage { topic, payload } => {
-                                    let _ = std::process::Command::new("mosquitto_pub")
-                                        .arg("-t").arg(topic)
-                                        .arg("-m").arg(payload)
-                                        .spawn();
+                            if let Some((user, pass)) = get_mqtt_credentials() {
+                                cmd_finished.arg("-u").arg(user).arg("-P").arg(pass);
+                            }
+                            if let Ok(broker) = std::env::var("MQTT_BROKER") {
+                                if broker != "localhost" && broker != "127.0.0.1" {
+                                    cmd_finished.arg("-h").arg(broker);
+                                }
+                            }
+
+                            match cmd_finished.output() {
+                                Ok(out) if !out.status.success() => {
+                                    dt_error(&format!(
+                                        "mosquitto_pub (finished) failed: {}",
+                                        String::from_utf8_lossy(&out.stderr)
+                                    ));
+                                }
+                                Ok(_) => {}
+                                Err(e) => dt_error(&format!("mosquitto_pub (finished) spawn error: {}", e)),
+                            }
+
+                            if let TimerAction::MqttMessage { topic, payload } = &timer.action {
+                                let mut cmd_action = std::process::Command::new("mosquitto_pub");
+                                cmd_action
+                                    .arg("-t").arg(topic)
+                                    .arg("-m").arg(payload);
+
+                                if let Some((user, pass)) = get_mqtt_credentials() {
+                                    cmd_action.arg("-u").arg(user).arg("-P").arg(pass);
+                                }
+                                if let Ok(broker) = std::env::var("MQTT_BROKER") {
+                                    if broker != "localhost" && broker != "127.0.0.1" {
+                                        cmd_action.arg("-h").arg(broker);
+                                    }
+                                }
+
+                                match cmd_action.output() {
+                                    Ok(out) if !out.status.success() => {
+                                        dt_error(&format!(
+                                            "mosquitto_pub (action) failed: {}",
+                                            String::from_utf8_lossy(&out.stderr)
+                                        ));
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => dt_error(&format!("mosquitto_pub (action) spawn error: {}", e)),
                                 }
                             }
                         }
@@ -70,17 +288,17 @@ fn start_timer_thread(manager: Arc<TimerManager>) {
                     continue;
                 } else {
                     let sleep_time = deadline - now;
-                    let (lock, result) = manager.condvar
+                    let (_timers, _result) = manager.condvar
                         .wait_timeout(manager.timers.lock().unwrap(), sleep_time)
                         .unwrap();
                 }
             } else {
-                drop(manager.condvar.wait(manager.timers.lock().unwrap()));
+                let _guard = manager.condvar.wait(manager.timers.lock().unwrap());
+                drop(_guard);
             }
         }
     });
 }
-
 
 
 type TimerId = u64;
@@ -482,7 +700,7 @@ fn handle_state_room(room: &str) -> String {
 } 
 
 fn handle_browse(path_arg: &str, use_v2: bool) -> String {
-    let media_root = "/Pool";
+    let media_root = get_root_dir();
     let full_path = format!("{}/{}", media_root, path_arg);
     
     // 🦆 says ⮞ safety first!
@@ -748,31 +966,6 @@ fn sanitize_filename(filename: &str) -> String {
     }
 }
   
-fn handle_shopping_list() -> String {
-    match run_yo_command(&["shop-list", "--list"]) {
-        Ok(output) => {
-            let items: Vec<&str> = output.lines().collect();
-            match serde_json::to_string(&items) {
-                Ok(json_items) => format!(r#"{{"items":{}}}"#, json_items),
-                Err(_) => r#"{"error":"Failed to format shopping list"}"#.to_string(),
-            }
-        }
-        Err(_) => r#"{"error":"Failed to fetch shopping list"}"#.to_string(),
-    }
-}
-
-fn handle_reminders() -> String {
-    match run_yo_command(&["reminder", "--list"]) {
-        Ok(output) => {
-            let items: Vec<&str> = output.lines().collect();
-            match serde_json::to_string(&items) {
-                Ok(json_items) => format!(r#"{{"items":{}}}"#, json_items),
-                Err(_) => r#"{"error":"Failed to format reminders"}"#.to_string(),
-            }
-        }
-        Err(_) => r#"{"error":"Failed to fetch reminders"}"#.to_string(),
-    }
-}
 
 // 🦆 says ⮞ device control endpoints
 fn handle_device_list() -> String {
@@ -1025,7 +1218,7 @@ fn handle_health_check() -> String {
             // 🦆 says ⮞ fallback if health command fails
             let timestamp = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string();
             format!(
-                r#"{{"status":"degraded","service":"yo-api","timestamp":"{}","error":"Health check failed: {}"}}"#,
+                r#"{{"status":"degraded","service":"zigduck-api","timestamp":"{}","error":"Health check failed: {}"}}"#,
                 timestamp, error_msg
             )
         }
@@ -1033,7 +1226,7 @@ fn handle_health_check() -> String {
             // 🦆 says ⮞ fallback if health command not found
             let timestamp = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string();
             format!(
-                r#"{{"status":"degraded","service":"yo-api","timestamp":"{}","error":"Health command failed: {}"}}"#,
+                r#"{{"status":"degraded","service":"zigduck-api","timestamp":"{}","error":"Health command failed: {}"}}"#,
                 timestamp, e
             )
         }
@@ -1064,6 +1257,241 @@ fn handle_health_all() -> String {
         Err(_) => r#"{"error":"Failed to serialize health data"}"#.to_string(),
     }
 }
+
+
+
+fn read_playlist_lines() -> Result<Vec<String>, String> {
+    match fs::read_to_string(get_playlist_path()) {
+        Ok(content) => {
+            let lines: Vec<String> = content
+                .lines()
+                .map(|l| l.to_string())
+                .filter(|l| !l.trim().is_empty())
+                .collect();
+            Ok(lines)
+        }
+        Err(e) => Err(format!("Failed to read playlist: {}", e)),
+    }
+}
+
+fn write_playlist_lines(lines: &[String]) -> Result<(), String> {
+    let content = lines.join("\n") + if lines.is_empty() { "" } else { "\n" };
+    fs::write(get_playlist_path(), content).map_err(|e| format!("Failed to write playlist: {}", e))
+}
+
+fn handle_m3u_clear() -> String {
+    let _lock = PLAYLIST_MUTEX.lock().unwrap();
+    match fs::write(get_playlist_path(), "") {
+        Ok(_) => json!({"status":"ok","action":"clear"}).to_string(),
+        Err(e) => json!({"error": format!("Could not clear playlist: {}", e)}).to_string(),
+    }
+}
+
+fn handle_m3u_add(entry: &str) -> String {
+    if entry.is_empty() {
+        return json!({"error":"Missing entry parameter"}).to_string();
+    }
+    let _lock = PLAYLIST_MUTEX.lock().unwrap();
+    match read_playlist_lines() {
+        Ok(mut lines) => {
+            lines.push(entry.to_string());
+            match write_playlist_lines(&lines) {
+                Ok(_) => json!({"status":"ok","action":"add","entry":entry}).to_string(),
+                Err(e) => json!({"error":e}).to_string(),
+            }
+        }
+        Err(e) => json!({"error":e}).to_string(),
+    }
+}
+
+fn handle_m3u_remove(index_str: &str) -> String {
+    let index: usize = match index_str.parse() {
+        Ok(i) => i,
+        Err(_) => return json!({"error":"Invalid index (must be a number)"}).to_string(),
+    };
+
+    let _lock = PLAYLIST_MUTEX.lock().unwrap();
+    match read_playlist_lines() {
+        Ok(mut lines) => {
+            if index >= lines.len() {
+                return json!({"error": format!("Index {} out of bounds (0–{})", index, lines.len().saturating_sub(1))}).to_string();
+            }
+            let removed = lines.remove(index);
+            match write_playlist_lines(&lines) {
+                Ok(_) => json!({"status":"ok","action":"remove","index":index,"removed":removed}).to_string(),
+                Err(e) => json!({"error":e}).to_string(),
+            }
+        }
+        Err(e) => json!({"error":e}).to_string(),
+    }
+}
+
+fn handle_m3u_shuffle() -> String {
+    use rand::seq::SliceRandom;
+    let _lock = PLAYLIST_MUTEX.lock().unwrap();
+    match read_playlist_lines() {
+        Ok(mut lines) => {
+            let mut rng = rand::thread_rng();
+            lines.shuffle(&mut rng);
+            match write_playlist_lines(&lines) {
+                Ok(_) => json!({"status":"ok","action":"shuffle","count":lines.len()}).to_string(),
+                Err(e) => json!({"error":e}).to_string(),
+            }
+        }
+        Err(e) => json!({"error":e}).to_string(),
+    }
+}
+
+fn handle_m3u_list() -> String {
+    let _lock = PLAYLIST_MUTEX.lock().unwrap();
+    match read_playlist_lines() {
+        Ok(lines) => json!({"playlist": lines}).to_string(),
+        Err(e) => json!({"error":e}).to_string(),
+    }
+}
+
+
+fn handle_alarm_list() -> String {
+    let alarms = ALARM_MANAGER.list();
+    serde_json::to_string(&alarms).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn handle_alarm_add(query: &str) -> String {
+    let hours: u8 = get_query_arg(query, "hours").parse().unwrap_or(0);
+    let minutes: u8 = get_query_arg(query, "minutes").parse().unwrap_or(0);
+    let name = urldecode(&get_query_arg(query, "name"));
+    let days_str = get_query_arg(query, "days");
+    let days: Option<Vec<u8>> = if days_str.is_empty() {
+        None
+    } else {
+        let parsed: Vec<u8> = days_str.split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .filter(|d| *d <= 6)
+            .collect();
+        if parsed.is_empty() { None } else { Some(parsed) }
+    };
+
+    if name.is_empty() {
+        return json!({"error":"Missing alarm name"}).to_string();
+    }
+    if hours > 23 || minutes > 59 {
+        return json!({"error":"Invalid time"}).to_string();
+    }
+
+    let id = ALARM_MANAGER.add(hours, minutes, days, name);
+    json!({"status":"ok","id":id}).to_string()
+}
+
+fn handle_alarm_remove(query: &str) -> String {
+    let id: u64 = get_query_arg(query, "id").parse().unwrap_or(0);
+    if id == 0 {
+        return json!({"error":"Missing id parameter"}).to_string();
+    }
+    match ALARM_MANAGER.remove(id) {
+        Ok(alarm) => json!({"status":"ok","removed":alarm.name}).to_string(),
+        Err(e) => json!({"error":e}).to_string(),
+    }
+}
+
+fn handle_alarm_toggle(query: &str) -> String {
+    let id: u64 = get_query_arg(query, "id").parse().unwrap_or(0);
+    if id == 0 {
+        return json!({"error":"Missing id parameter"}).to_string();
+    }
+    match ALARM_MANAGER.toggle(id) {
+        Ok(alarm) => json!({"status":"ok","id":alarm.id,"enabled":alarm.enabled}).to_string(),
+        Err(e) => json!({"error":e}).to_string(),
+    }
+}
+
+
+fn start_alarm_thread(manager: Arc<AlarmManager>) {
+    std::thread::spawn(move || {
+        loop {
+            let next_time = manager.next_trigger_time();
+            let sleep_duration = match next_time {
+                Some(target) => {
+                    let now = Local::now().time();
+                    let diff = if target > now {
+                        target - now
+                    } else {
+                        chrono::Duration::seconds(60)
+                    };
+                    diff.to_std().unwrap_or(Duration::from_secs(60))
+                }
+                None => Duration::from_secs(60),
+            };
+
+            let _ = manager.condvar
+                .wait_timeout(manager.alarms.lock().unwrap(), sleep_duration)
+                .unwrap();
+
+            let now = Local::now();
+            let today_str = now.format("%Y-%m-%d").to_string();
+            let weekday = now.weekday().num_days_from_sunday() as u8;
+            let current_time = now.time();
+
+            let mut alarms = manager.alarms.lock().unwrap();
+            let mut changed = false;
+            for alarm in alarms.iter_mut() {
+                if !alarm.enabled {
+                    continue;
+                }
+
+                if let Some(ref days) = alarm.days {
+                    if !days.contains(&weekday) {
+                        continue;
+                    }
+                }
+
+                if alarm.hour == current_time.hour() as u8
+                    && alarm.minute == current_time.minute() as u8
+                {
+                    if alarm.last_fired.as_deref() == Some(&today_str) {
+                        continue;
+                    }
+
+                    let payload = json!({
+                        "alarm_id": alarm.id,
+                        "name": alarm.name,
+                        "time": format!("{:02}:{:02}", alarm.hour, alarm.minute),
+                    }).to_string();
+
+                    let mut cmd = std::process::Command::new("mosquitto_pub");
+                    cmd.arg("-t").arg("zigbee2mqtt/alarm/triggered")
+                       .arg("-m").arg(&payload);
+
+                    if let Some((user, pass)) = get_mqtt_credentials() {
+                        cmd.arg("-u").arg(user).arg("-P").arg(pass);
+                    }
+                    if let Ok(broker) = std::env::var("MQTT_BROKER") {
+                        if broker != "localhost" && broker != "127.0.0.1" {
+                            cmd.arg("-h").arg(broker);
+                        }
+                    }
+
+                    match cmd.output() {
+                        Ok(out) if !out.status.success() => {
+                            dt_error(&format!(
+                                "mosquitto_pub (alarm) failed: {}",
+                                String::from_utf8_lossy(&out.stderr)
+                            ));
+                        }
+                        Ok(_) => {}
+                        Err(e) => dt_error(&format!("mosquitto_pub (alarm) spawn error: {}", e)),
+                    }
+
+                    alarm.last_fired = Some(today_str.clone());
+                    changed = true;
+                }
+            }
+            if changed {
+                manager.save_to_file();
+            }
+        }
+    });
+}
+
 
 fn handle_request(mut stream: TcpStream) {
     let peer_addr = match stream.peer_addr() {
@@ -1153,7 +1581,7 @@ fn handle_request(mut stream: TcpStream) {
         ("GET", "/") => {
             dt_info("Root endpoint requested");
             send_response(&mut stream, "200 OK", 
-                r#"{"service":"yo-api","endpoints":["/timers","/alarms","/shopping","/reminders","/health","/browse","/browsev2","/add","/add_folder","/playlist","/playlist/remove","/playlist/clear","/playlist/shuffle","/do","/device/list","/device/{device}/...","/scene/{scene}","/device/rooms","/device/types","/upload","/tts","/state","/state/{device}","/state/room/{room}","/transcode-video"]}"#,
+                r#"{"service":"zigduck-api","endpoints":["/timers","/alarms","/alarms/add","/alarms/remove","/alarms/toggle","/health","/health/all","/do","/browse","/browsev2","/device/list","/device/{device}/...","/device/rooms","/device/types","/scene/{scene}","/state","/state/{device}","/state/room/{room}","/tts","/upload","/transcode-video","/playlist/list","/playlist/add","/playlist/remove","/playlist/shuffle","/playlist/clear","/media/playlist","/media/next","/media/previous","/media/play","/media/pause","/media/volume/up","/media/volume/down","/media/power/on","/media/power/off"]}"#,
                 None);
         }
         
@@ -1189,47 +1617,7 @@ fn handle_request(mut stream: TcpStream) {
             let path_arg = get_path_arg(query);
             let response = handle_browse(&path_arg, false);
             send_response(&mut stream, "200 OK", &response, None);
-        }
-        ("GET", "/add") | ("GET", "/api/add") => {
-            let path_arg = get_path_arg(query);
-            if path_arg.is_empty() {
-                dt_warning("Add endpoint called without path parameter");
-                send_response(&mut stream, "400 Bad Request", r#"{"error":"Missing path parameter"}"#, None);
-                return;
-            }
-
-            match run_yo_command(&["vlc", "--add", &path_arg]) {
-                Ok(_) => {
-                    dt_info(&format!("File added to playlist: {}", path_arg));
-                    send_response(&mut stream, "200 OK", &format!(r#"{{"status":"ok","action":"add","path":"{}"}}"#, path_arg), None);
-                }
-                Err(e) => {
-                    dt_error(&format!("Failed to add file '{}': {}", path_arg, e));
-                    send_response(&mut stream, "500 Internal Server Error", &format!(r#"{{"error":"Failed to add file","path":"{}"}}"#, path_arg), None);
-                }
-            }
-        }
-        ("GET", "/add_folder") | ("GET", "/api/add_folder") => {
-            let path_arg = get_path_arg(query);
-            if path_arg.is_empty() {
-                dt_warning("Add folder endpoint called without path parameter");
-                send_response(&mut stream, "400 Bad Request", r#"{"error":"Missing path parameter"}"#, None);
-                return;
-            }
-            log(&format!("Adding folder: {}", path_arg));
-            match run_yo_command(&["vlc", "--addDir", &path_arg]) {
-                Ok(_) => {
-                    dt_info(&format!("✅ Folder added to playlist: {}", path_arg));
-                    send_response(&mut stream, "200 OK", &format!(r#"{{"status":"ok","action":"add_folder","path":"{}"}}"#, path_arg), None);
-                }
-                Err(e) => {
-                    dt_error(&format!("❌ Failed to add folder '{}': {}", path_arg, e));
-                    send_response(&mut stream, "500 Internal Server Error", &format!(r#"{{"error":"Failed to add folder","path":"{}"}}"#, path_arg), None);
-                }
-            }
-        }
-        
-        
+        }   
         
         ("GET", "/timers") => {
             let timers = TIMER_MANAGER.list();
@@ -1312,28 +1700,21 @@ fn handle_request(mut stream: TcpStream) {
         
         
         ("GET", "/alarms") | ("GET", "/api/alarms") => {
-            match run_yo_command(&["alarm", "--list"]) {
-                Ok(output) => send_response(&mut stream, "200 OK", &output, None),
-                Err(_) => send_response(&mut stream, "500 Internal Server Error", r#"{"error":"Failed to fetch alarms"}"#, None),
-            }
+            let response = handle_alarm_list();
+            send_response(&mut stream, "200 OK", &response, None);
         }
-        ("GET", "/shopping") | ("GET", "/shopping-list") | ("GET", "/api/shopping") => {
-            let response = handle_shopping_list();
-            if response.contains("error") {
-                send_response(&mut stream, "500 Internal Server Error", &response, None);
-            } else {
-                send_response(&mut stream, "200 OK", &response, None);
-            }
+        ("GET", "/alarms/add") | ("GET", "/api/alarms/add") => {
+            let response = handle_alarm_add(query);
+            send_response(&mut stream, "200 OK", &response, None);
         }
-        ("GET", "/reminders") | ("GET", "/remmind") | ("GET", "/api/reminders") => {
-            let response = handle_reminders();
-            if response.contains("error") {
-                send_response(&mut stream, "500 Internal Server Error", &response, None);
-            } else {
-                send_response(&mut stream, "200 OK", &response, None);
-            }
+        ("GET", "/alarms/remove") | ("GET", "/api/alarms/remove") => {
+            let response = handle_alarm_remove(query);
+            send_response(&mut stream, "200 OK", &response, None);
         }
-
+        ("GET", "/alarms/toggle") | ("GET", "/api/alarms/toggle") => {
+            let response = handle_alarm_toggle(query);
+            send_response(&mut stream, "200 OK", &response, None);
+        }
         ("GET", "/media/power/on") | ("GET", "/api/media/power/on") => {
             let device = get_device_ip(query);
             match execute_adb(&device, &["shell", "input", "keyevent", "KEYCODE_WAKEUP"]) {
@@ -1418,108 +1799,30 @@ fn handle_request(mut stream: TcpStream) {
             }
         }
         
-        ("GET", "/playlist") | ("GET", "/api/playlist") => {
-            match run_yo_command(&["vlc", "--list"]) {
-                Ok(output) => send_response(&mut stream, "200 OK", &output, None),
-                Err(_) => send_response(&mut stream, "500 Internal Server Error", r#"{"error":"Failed to fetch playlist"}"#, None),
-            }
-        }           
-        ("GET", "/playlist/remove") | ("GET", "/api/playlist/remove") => {
-            let index_str = get_query_arg(query, "index");
-            if index_str.is_empty() {
-                dt_warning("Playlist remove called without index");
-                send_response(&mut stream, "400 Bad Request", r#"{"error":"Missing index parameter"}"#, None);
-                return;
-            }
-
-            match run_yo_command(&["vlc", "--list"]) {
-                Ok(playlist_json) => {
-                    match serde_json::from_str::<serde_json::Value>(&playlist_json) {
-                        Ok(parsed) => {
-                            if let Some(playlist_array) = parsed.get("playlist").and_then(|p| p.as_array()) {
-                                let index = index_str.parse::<usize>().unwrap_or(usize::MAX);
-                                if index >= playlist_array.len() {
-                                    dt_warning(&format!("Index {} out of bounds (playlist has {} items)", index, playlist_array.len()));
-                                    send_response(&mut stream, "400 Bad Request", 
-                                        &format!(r#"{{"error":"Index {} out of bounds (playlist has {} items)"}}"#, 
-                                        index, playlist_array.len()), None);
-                                    return;
-                                }
-                    
-                                if let Some(path_value) = playlist_array.get(index) {
-                                    if let Some(path) = path_value.as_str() {
-                                        match run_yo_command(&["vlc", "--remove", "true", "--add", path]) {
-                                            Ok(_) => {
-                                                dt_info(&format!("✅ Removed playlist item {}: {}", index, path));
-                                                send_response(&mut stream, "200 OK", 
-                                                    &format!(r#"{{"status":"ok","action":"remove","index":{},"path":"{}"}}"#, index, path), None);
-                                            }
-                                            Err(e) => {
-                                                dt_error(&format!("❌ Failed to remove playlist item {}: {}", index, e));
-                                                send_response(&mut stream, "500 Internal Server Error", 
-                                                    &format!(r#"{{"error":"Failed to remove item: {}"}}"#, e), None);
-                                            }
-                                        }
-                                    } else {
-                                        dt_error(&format!("Invalid path format at index {}", index));
-                                        send_response(&mut stream, "500 Internal Server Error", 
-                                            r#"{"error":"Invalid path format in playlist"}"#, None);
-                                    }
-                                } else {
-                                    dt_warning(&format!("Invalid index: {}", index));
-                                    send_response(&mut stream, "400 Bad Request", 
-                                        &format!(r#"{{"error":"Invalid index: {}"}}"#, index), None);
-                                }
-                            } else {
-                                dt_error("Invalid playlist format");
-                                send_response(&mut stream, "500 Internal Server Error", 
-                                    r#"{"error":"Invalid playlist format"}"#, None);
-                            }
-                        }
-                        Err(e) => {
-                            dt_error(&format!("Failed to parse playlist JSON: {}", e));
-                            send_response(&mut stream, "500 Internal Server Error", 
-                                &format!(r#"{{"error":"Failed to parse playlist: {}"}}"#, e), None);
-                        }
-                    }    
-                }
-                Err(e) => {
-                    dt_error(&format!("Failed to fetch playlist: {}", e));
-                    send_response(&mut stream, "500 Internal Server Error", 
-                        &format!(r#"{{"error":"Failed to fetch playlist: {}"}}"#, e), None);
-                }
-            }
+                 
+        ("GET", "/playlist/clear") => {
+            let response = handle_m3u_clear();
+            send_response(&mut stream, "200 OK", &response, None);
         }
-
-        ("GET", "/playlist/clear") | ("GET", "/api/playlist/clear") => {
-            match run_yo_command(&["vlc", "--clear", "true"]) {
-                Ok(_) => {
-                    dt_info("🗑️ Clearing entire playlist");
-                    send_response(&mut stream, "200 OK", 
-                        r#"{"status":"ok","action":"clear","message":"Playlist cleared"}"#, None);
-                }
-                Err(e) => {
-                    dt_error(&format!("Failed to clear playlist: {}", e));
-                    send_response(&mut stream, "500 Internal Server Error", 
-                        &format!(r#"{{"error":"Failed to clear playlist: {}"}}"#, e), None);
-                }
-            }
+        ("GET", "/playlist/add") => {
+            let entry = urldecode(&get_query_arg(query, "entry"));
+            let response = handle_m3u_add(&entry);
+            send_response(&mut stream, "200 OK", &response, None);
         }
-
-        ("GET", "/playlist/shuffle") | ("GET", "/api/playlist/shuffle") => {
-            match run_yo_command(&["vlc", "--shuffle", "true"]) {
-                Ok(_) => {
-                    dt_info("Playlist shuffled");
-                    send_response(&mut stream, "200 OK", 
-                        r#"{"status":"ok","action":"shuffle","message":"Playlist shuffled"}"#, None);
-                }
-                Err(e) => {
-                    dt_error(&format!("Failed to shuffle playlist: {}", e));
-                    send_response(&mut stream, "500 Internal Server Error", 
-                        &format!(r#"{{"error":"Failed to shuffle playlist: {}"}}"#, e), None);
-                }
-            }
+        ("GET", "/playlist/remove") => {
+            let index = get_query_arg(query, "index");
+            let response = handle_m3u_remove(&index);
+            send_response(&mut stream, "200 OK", &response, None);
         }
+        ("GET", "/playlist/shuffle") => {
+            let response = handle_m3u_shuffle();
+            send_response(&mut stream, "200 OK", &response, None);
+        }
+        ("GET", "/playlist/list") => {
+            let response = handle_m3u_list();
+            send_response(&mut stream, "200 OK", &response, None);
+        }
+          
                  
         ("GET", "/health") | ("GET", "/api/health") => {
             let response = handle_health_check();
@@ -1786,6 +2089,7 @@ fn main() {
     let address = format!("{}:{}", host, port);
 
     start_timer_thread(TIMER_MANAGER.clone());
+    start_alarm_thread(ALARM_MANAGER.clone());
 
     // 🦆 says ⮞ port in use?
     if TcpListener::bind(&address).is_err() {
@@ -1797,19 +2101,19 @@ fn main() {
     log("Available endpoints:");
     log("  GET /timers                     - List timers");
     log("  GET /alarms                     - List alarms");
-    log("  GET /shopping                   - List shopping items");
-    log("  GET /reminders                  - List reminders");
+    log("  GET /alarms/add?hours=...&minutes=...&name=...&days=...  - Add alarm");
+    log("  GET /alarms/remove?id=...       - Remove alarm");
+    log("  GET /alarms/toggle?id=...       - Toggle alarm");
     log("  GET /health                     - Health check (no auth required)");
     log("  GET /health/all                 - All health checks (no auth required)");
     log("  GET /do?cmd=...                 - Execute natural language commands");
     log("  GET /browse?path=...            - Browse media directory (legacy)");
     log("  GET /browsev2?path=...          - Browse media directory (improved)");
-    log("  GET /add?path=...               - Add file to playlist");
-    log("  GET /add_folder?path=...        - Add folder to playlist");
-    log("  GET /playlist                   - Get current playlist");
-    log("  GET /playlist/remove?index=...  - Remove item from playlist");
-    log("  GET /playlist/clear             - Clear playlist");
-    log("  GET /playlist/shuffle           - Shuffle playlist");
+    log("  GET /playlist/list              - Get current m3u playlist");
+    log("  GET /playlist/add?entry=...     - Add entry to m3u playlist");
+    log("  GET /playlist/remove?index=...  - Remove entry from m3u playlist");
+    log("  GET /playlist/shuffle           - Shuffle m3u playlist");
+    log("  GET /playlist/clear             - Clear m3u playlist");
     log("  GET /tts?text=...               - Text to speech");
     log("  GET /state                     - Get full state of all devices");
     log("  GET /state/{device}            - Get state for specific device");
@@ -1838,9 +2142,9 @@ fn main() {
     log("  All endpoints except /health and /health/all require password authentication");
     log("  Use: Authorization: Bearer <password> header");
     log("  Or:  X-API-Key: <password> header");
-    log("  Or:  ?password=<password> query parameter");
     log("  Password is read from API_PASSWORD_FILE environment variable");
     log("Press Ctrl+C to stop");
+    
 
     for stream in listener.incoming() {
         match stream {

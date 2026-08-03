@@ -306,6 +306,13 @@ fn main() {
             adb_keyevent(&device_ip, "KEYCODE_MEDIA_PLAY_PAUSE");
             return;
         }
+        "play_playlist" => {
+            play_playlist(
+                &device_ip,
+                &format!("{}/playlist.m3u", webserver_url),
+            );
+            return;
+        }        
         "call" => {
             wake_and_connect(&device_ip);
             let cmd = "am start -n com.nvidia.remotelocator/.ShieldRemoteLocatorActivity";

@@ -55,11 +55,39 @@ struct HueConfig {
 
 
 #[derive(Subcommand, Debug)]
-enum TimerCommands {
-    #[command(name = "timer", about = "Manage timers via the zigduck API")]
+enum Commands {
+    #[command(name = "timer")]
     Timer {
         #[command(subcommand)]
         action: TimerAction,
+    },
+    #[command(name = "alarm")]
+    Alarm {
+        #[command(subcommand)]
+        action: AlarmAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum AlarmAction {
+    List,
+    Add {
+        #[arg(long)]
+        hours: u8,
+        #[arg(long)]
+        minutes: u8,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        days: Option<String>,
+    },
+    Remove {
+        #[arg(long)]
+        id: u64,
+    },
+    Toggle {
+        #[arg(long)]
+        id: u64,
     },
 }
 
@@ -73,9 +101,17 @@ enum TimerAction {
         minutes: Option<u32>,
         #[arg(long, help = "Seconds")]
         seconds: Option<u32>,
-        #[arg(long, help = "MQTT topic to publish when timer fires")]
+        #[arg(
+            long,
+            help = "MQTT topic to publish when timer fires",
+            default_value = "zigbee2mqtt/timer/finished"
+        )]
         topic: String,
-        #[arg(long, help = "MQTT payload to publish")]
+        #[arg(
+            long,
+            help = "MQTT payload to publish",
+            default_value = r#"{"status":"finished"}"#
+        )]
         payload: String,
         #[arg(long, help = "Human‑readable name for the timer")]
         name: Option<String>,
@@ -196,7 +232,7 @@ struct Cli {
     delay: u64,
     
     #[command(subcommand)]
-    command: Option<TimerCommands>,
+    command: Option<Commands>,
 
     #[arg(long, help = "zigduck API URL", env = "API_URL")]
     api_url: Option<String>,
@@ -1179,6 +1215,86 @@ fn api_cancel_timer(api_url: &str, password: &str, id: u64) -> Result<()> {
     Ok(())
 }
 
+fn api_list_alarms(api_url: &str, password: &str) -> Result<()> {
+    let client = HttpClient::new();
+    let resp = client
+        .get(format!("{}/alarms", api_url))
+        .header("Authorization", format!("Bearer {}", password))
+        .send()
+        .context("Failed to reach API")?;
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json()?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
+fn api_add_alarm(
+    api_url: &str,
+    password: &str,
+    hours: u8,
+    minutes: u8,
+    name: &str,
+    days: Option<&str>,
+) -> Result<()> {
+    let client = HttpClient::new();
+    let mut params = vec![
+        ("hours", hours.to_string()),
+        ("minutes", minutes.to_string()),
+        ("name", name.to_string()),
+    ];
+    if let Some(d) = days {
+        if !d.is_empty() {
+            params.push(("days", d.to_string()));
+        }
+    }
+    let resp = client
+        .get(format!("{}/alarms/add", api_url))
+        .query(&params)
+        .header("Authorization", format!("Bearer {}", password))
+        .send()
+        .context("Failed to reach API")?;
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json()?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
+fn api_remove_alarm(api_url: &str, password: &str, id: u64) -> Result<()> {
+    let client = HttpClient::new();
+    let resp = client
+        .get(format!("{}/alarms/remove", api_url))
+        .query(&[("id", id.to_string())])
+        .header("Authorization", format!("Bearer {}", password))
+        .send()
+        .context("Failed to reach API")?;
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json()?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
+fn api_toggle_alarm(api_url: &str, password: &str, id: u64) -> Result<()> {
+    let client = HttpClient::new();
+    let resp = client
+        .get(format!("{}/alarms/toggle", api_url))
+        .query(&[("id", id.to_string())])
+        .header("Authorization", format!("Bearer {}", password))
+        .send()
+        .context("Failed to reach API")?;
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json()?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
 
 fn main() -> Result<()> {
     let debug = std::env::var("DEBUG").is_ok();
@@ -1291,13 +1407,11 @@ fn main() -> Result<()> {
         cli.verbose > 0,
     )?;
 
-
+    
     if let Some(cmd) = cli.command {
         match cmd {
-            TimerCommands::Timer { action } => match action {
-                TimerAction::List => {
-                    api_list_timers(&api_url, &api_password)?;
-                }
+            Commands::Timer { action } => match action {
+                TimerAction::List => api_list_timers(&api_url, &api_password)?,
                 TimerAction::Set { hours, minutes, seconds, topic, payload, name } => {
                     let h = hours.unwrap_or(0);
                     let m = minutes.unwrap_or(0);
@@ -1310,19 +1424,22 @@ fn main() -> Result<()> {
                     }
                     api_set_timer(&api_url, &api_password, h, m, s, &topic, &payload, name.as_deref())?;
                 }
-                TimerAction::Pause { id } => {
-                    api_pause_timer(&api_url, &api_password, id)?;
+                TimerAction::Pause { id } => api_pause_timer(&api_url, &api_password, id)?,
+                TimerAction::Resume { id } => api_resume_timer(&api_url, &api_password, id)?,
+                TimerAction::Cancel { id } => api_cancel_timer(&api_url, &api_password, id)?,
+            },
+            Commands::Alarm { action } => match action {
+                AlarmAction::List => api_list_alarms(&api_url, &api_password)?,
+                AlarmAction::Add { hours, minutes, name, days } => {
+                    api_add_alarm(&api_url, &api_password, hours, minutes, &name, days.as_deref())?;
                 }
-                TimerAction::Resume { id } => {
-                    api_resume_timer(&api_url, &api_password, id)?;
-                }
-                TimerAction::Cancel { id } => {
-                    api_cancel_timer(&api_url, &api_password, id)?;
-                }
+                AlarmAction::Remove { id } => api_remove_alarm(&api_url, &api_password, id)?,
+                AlarmAction::Toggle { id } => api_toggle_alarm(&api_url, &api_password, id)?,
             },
         }
         return Ok(());
     }
+    
 
     fn parse_state(state_str: &str, brightness: &mut Option<u8>, color: &mut Option<String>) -> Result<DeviceState> {
         match state_str.to_lowercase().as_str() {
