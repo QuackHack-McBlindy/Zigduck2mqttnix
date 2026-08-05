@@ -1,7 +1,6 @@
-// ddotfiles/packages/zigduck-rs/src/zigduck-cli.rs ⮞ https://github.com/QuackHack-McBlindy/dotfiles
-use std::{ // 🦆 says ⮞ zigduck-cli is a command line device controller for zigduck
+use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
     collections::HashMap,
 };    
@@ -20,6 +19,8 @@ use anyhow::{Result, Context};
 use colored::*;
 use reqwest::blocking::Client as HttpClient;
 use clap::Subcommand;
+use comfy_table::presets::UTF8_FULL;
+use comfy_table::*;
 
  
 #[derive(Debug, Deserialize, Clone)]
@@ -80,6 +81,18 @@ enum AlarmAction {
         name: String,
         #[arg(long)]
         days: Option<String>,
+        #[arg(
+            long,
+            default_value = "zigbee2mqtt/alarm/triggered",
+            help = "MQTT topic to publish when alarm fires"
+        )]
+        topic: String,
+        #[arg(
+            long,
+            default_value = r#"{"alarm":"triggered"}"#,
+            help = "MQTT payload to publish"
+        )]
+        payload: String,
     },
     Remove {
         #[arg(long)]
@@ -182,6 +195,12 @@ struct Cli {
 
     #[arg(long, help = "List devices, rooms, scenes, lights, or sensors")]
     list: Option<Option<ListType>>,
+
+    #[arg(long, help = "Show a formatted device status table including state, battery, temperature")]
+    status: bool,
+
+    #[arg(long, help = "Path to local state.json (overrides API fetch)", env = "ZIGDUCK_STATE_FILE")]
+    state_file: Option<PathBuf>,
 
     #[arg(long, num_args(0..=1), default_missing_value = "120", help = "Pairing duration in seconds (default: 120)")]
     pair: Option<Option<u16>>,
@@ -1237,12 +1256,16 @@ fn api_add_alarm(
     minutes: u8,
     name: &str,
     days: Option<&str>,
+    topic: &str,
+    payload: &str,
 ) -> Result<()> {
     let client = HttpClient::new();
     let mut params = vec![
         ("hours", hours.to_string()),
         ("minutes", minutes.to_string()),
         ("name", name.to_string()),
+        ("topic", topic.to_string()),
+        ("payload", payload.to_string()),
     ];
     if let Some(d) = days {
         if !d.is_empty() {
@@ -1294,6 +1317,117 @@ fn api_toggle_alarm(api_url: &str, password: &str, id: u64) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&body)?);
     Ok(())
 }
+
+
+
+fn fetch_and_print_status_table(
+    api_url: Option<&str>,
+    api_password: &str,
+    state_file: Option<&Path>,
+    verbose: bool,
+) -> Result<()> {
+    let json_str = if let Some(path) = state_file {
+        fs::read_to_string(path).context("Failed to read state file")?
+    } else if let Some(base_url) = api_url {
+        let client = reqwest::blocking::Client::new();
+        let url = format!("{}/state", base_url.trim_end_matches('/'));
+        if verbose {
+            println!("Fetching state from API: {}", url);
+        }
+        let resp = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", api_password))
+            .send()
+            .context("Failed to reach API")?;
+        if !resp.status().is_success() {
+            anyhow::bail!("API returned {}", resp.status());
+        }
+        resp.text()?
+    } else { anyhow::bail!("No state source available (set --api-url or --state-file)"); };
+
+    let data: HashMap<String, serde_json::Value> =
+        serde_json::from_str(&json_str).context("Invalid state JSON")?;
+
+    fn json_to_number(v: &serde_json::Value) -> Option<f64> {
+        v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    }
+
+    let mut rows = Vec::new();
+
+    for (device_name, props) in &data {
+        let state_display = if let Some(state) = props.get("state").and_then(|v| v.as_str()) {
+            match state {
+                "ON" => Some("ON"),
+                "OFF" => Some("OFF"),
+                _ => None,
+            }
+        } else if let Some(pos) = props.get("position").and_then(json_to_number) {
+            if (pos - 100.0).abs() < f64::EPSILON {
+                Some("OPEN")
+            } else { None }
+            
+        } else if let Some(contact) = props.get("contact") {
+            let is_closed = contact
+                .as_bool()
+                .or_else(|| contact.as_str().map(|s| s.eq_ignore_ascii_case("true")));
+            match is_closed {
+                Some(true) => Some("CLOSED"),
+                Some(false) => Some("OPEN"),
+                None => None,
+            }
+        } else { None };
+
+        let battery_str = props
+            .get("battery")
+            .and_then(json_to_number)
+            .map(|b| {
+                let icon = if b > 40.0 { "🔋" } else { "🪫" };
+                format!("{} {:.0}%", icon, b)
+            })
+            .unwrap_or_default();
+
+        let temp_str = props
+            .get("temperature")
+            .and_then(json_to_number)
+            .map(|t| format!("{:.2}°C", t))
+            .unwrap_or_default();
+
+        if state_display.is_none() && battery_str.is_empty() && temp_str.is_empty() {
+            continue;
+        }
+
+        rows.push((
+            state_display.unwrap_or("").to_string(),
+            device_name.clone(),
+            battery_str,
+            temp_str,
+        ));
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![
+            Cell::new("State").add_attribute(Attribute::Bold),
+            Cell::new("Device").add_attribute(Attribute::Bold),
+            Cell::new("Battery").add_attribute(Attribute::Bold),
+            Cell::new("Temperature").add_attribute(Attribute::Bold),
+        ]);
+
+    for (state, device, battery, temp) in &rows {
+        table.add_row(vec![
+            Cell::new(state),
+            Cell::new(device),
+            Cell::new(battery),
+            Cell::new(temp),
+        ]);
+    }
+
+    println!("{table}");
+    Ok(())
+}
+
 
 
 fn main() -> Result<()> {
@@ -1400,6 +1534,16 @@ fn main() -> Result<()> {
         cli.hue_api_key.or_else(|| std::env::var("HUE_API_KEY").ok())
     };
 
+    if cli.status {
+        fetch_and_print_status_table(
+            Some(&api_url),
+            &api_password,
+            cli.state_file.as_deref(),
+            cli.verbose > 0,
+        )?;
+        return Ok(());
+    }
+
     let mut controller = ZigduckController::new(
         cli.broker, cli.user, password,
         cli.hue_bridge_ip, hue_api_key,
@@ -1430,8 +1574,17 @@ fn main() -> Result<()> {
             },
             Commands::Alarm { action } => match action {
                 AlarmAction::List => api_list_alarms(&api_url, &api_password)?,
-                AlarmAction::Add { hours, minutes, name, days } => {
-                    api_add_alarm(&api_url, &api_password, hours, minutes, &name, days.as_deref())?;
+                AlarmAction::Add { hours, minutes, name, days, topic, payload } => {
+                    api_add_alarm(
+                        &api_url,
+                        &api_password,
+                        hours,
+                        minutes,
+                        &name,
+                        days.as_deref(),
+                        &topic,
+                        &payload,
+                    )?;
                 }
                 AlarmAction::Remove { id } => api_remove_alarm(&api_url, &api_password, id)?,
                 AlarmAction::Toggle { id } => api_toggle_alarm(&api_url, &api_password, id)?,

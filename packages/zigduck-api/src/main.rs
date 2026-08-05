@@ -91,6 +91,14 @@ struct Alarm {
     enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_fired: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    action: Option<AlarmAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AlarmAction {
+    topic: String,
+    payload: String,
 }
 
 struct AlarmManager {
@@ -121,8 +129,19 @@ impl AlarmManager {
         }
     }
 
-
-    fn add(&self, hour: u8, minute: u8, days: Option<Vec<u8>>, name: String) -> u64 {
+    fn add(
+        &self,
+        hour: u8,
+        minute: u8,
+        days: Option<Vec<u8>>,
+        name: String,
+        topic: Option<String>,
+        payload: Option<String>,
+    ) -> u64 {
+        let action = match (topic, payload) {
+            (Some(t), Some(p)) => Some(AlarmAction { topic: t, payload: p }),
+            _ => None,
+        };
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let alarm = Alarm {
             id,
@@ -132,6 +151,7 @@ impl AlarmManager {
             days,
             enabled: true,
             last_fired: None,
+            action,
         };
         self.alarms.lock().unwrap().push(alarm);
         self.save_to_file();
@@ -226,37 +246,6 @@ fn start_timer_thread(manager: Arc<TimerManager>) {
 
                     for id in due_ids {
                         if let Some(timer) = timers.remove(&id) {
-                            let finished_payload = json!({
-                                "timer_id": timer.id,
-                                "name": timer.name,
-                                "status": "finished"
-                            }).to_string();
-
-                            let mut cmd_finished = std::process::Command::new("mosquitto_pub");
-                            cmd_finished
-                                .arg("-t").arg("zigbee2mqtt/timer/finished")
-                                .arg("-m").arg(&finished_payload);
-
-                            if let Some((user, pass)) = get_mqtt_credentials() {
-                                cmd_finished.arg("-u").arg(user).arg("-P").arg(pass);
-                            }
-                            if let Ok(broker) = std::env::var("MQTT_BROKER") {
-                                if broker != "localhost" && broker != "127.0.0.1" {
-                                    cmd_finished.arg("-h").arg(broker);
-                                }
-                            }
-
-                            match cmd_finished.output() {
-                                Ok(out) if !out.status.success() => {
-                                    dt_error(&format!(
-                                        "mosquitto_pub (finished) failed: {}",
-                                        String::from_utf8_lossy(&out.stderr)
-                                    ));
-                                }
-                                Ok(_) => {}
-                                Err(e) => dt_error(&format!("mosquitto_pub (finished) spawn error: {}", e)),
-                            }
-
                             if let TimerAction::MqttMessage { topic, payload } = &timer.action {
                                 let mut cmd_action = std::process::Command::new("mosquitto_pub");
                                 cmd_action
@@ -1371,6 +1360,11 @@ fn handle_alarm_add(query: &str) -> String {
         if parsed.is_empty() { None } else { Some(parsed) }
     };
 
+    let topic = get_query_arg(query, "topic");
+    let payload = get_query_arg(query, "payload");
+    let topic_opt = if topic.is_empty() { None } else { Some(urldecode(&topic)) };
+    let payload_opt = if payload.is_empty() { None } else { Some(urldecode(&payload)) };
+
     if name.is_empty() {
         return json!({"error":"Missing alarm name"}).to_string();
     }
@@ -1378,9 +1372,10 @@ fn handle_alarm_add(query: &str) -> String {
         return json!({"error":"Invalid time"}).to_string();
     }
 
-    let id = ALARM_MANAGER.add(hours, minutes, days, name);
+    let id = ALARM_MANAGER.add(hours, minutes, days, name, topic_opt, payload_opt);
     json!({"status":"ok","id":id}).to_string()
 }
+
 
 fn handle_alarm_remove(query: &str) -> String {
     let id: u64 = get_query_arg(query, "id").parse().unwrap_or(0);
@@ -1451,34 +1446,30 @@ fn start_alarm_thread(manager: Arc<AlarmManager>) {
                         continue;
                     }
 
-                    let payload = json!({
-                        "alarm_id": alarm.id,
-                        "name": alarm.name,
-                        "time": format!("{:02}:{:02}", alarm.hour, alarm.minute),
-                    }).to_string();
+                    if let Some(ref action) = alarm.action {
+                        let mut cmd = std::process::Command::new("mosquitto_pub");
+                        cmd.arg("-t").arg(&action.topic)
+                           .arg("-m").arg(&action.payload);
 
-                    let mut cmd = std::process::Command::new("mosquitto_pub");
-                    cmd.arg("-t").arg("zigbee2mqtt/alarm/triggered")
-                       .arg("-m").arg(&payload);
-
-                    if let Some((user, pass)) = get_mqtt_credentials() {
-                        cmd.arg("-u").arg(user).arg("-P").arg(pass);
-                    }
-                    if let Ok(broker) = std::env::var("MQTT_BROKER") {
-                        if broker != "localhost" && broker != "127.0.0.1" {
-                            cmd.arg("-h").arg(broker);
+                        if let Some((user, pass)) = get_mqtt_credentials() {
+                            cmd.arg("-u").arg(user).arg("-P").arg(pass);
                         }
-                    }
-
-                    match cmd.output() {
-                        Ok(out) if !out.status.success() => {
-                            dt_error(&format!(
-                                "mosquitto_pub (alarm) failed: {}",
-                                String::from_utf8_lossy(&out.stderr)
-                            ));
+                        if let Ok(broker) = std::env::var("MQTT_BROKER") {
+                            if broker != "localhost" && broker != "127.0.0.1" {
+                                cmd.arg("-h").arg(broker);
+                            }
                         }
-                        Ok(_) => {}
-                        Err(e) => dt_error(&format!("mosquitto_pub (alarm) spawn error: {}", e)),
+
+                        match cmd.output() {
+                            Ok(out) if !out.status.success() => {
+                                dt_error(&format!(
+                                    "mosquitto_pub (alarm) failed: {}",
+                                    String::from_utf8_lossy(&out.stderr)
+                                ));
+                            }
+                            Ok(_) => {}
+                            Err(e) => dt_error(&format!("mosquitto_pub (alarm) spawn error: {}", e)),
+                        }
                     }
 
                     alarm.last_fired = Some(today_str.clone());
@@ -2101,7 +2092,7 @@ fn main() {
     log("Available endpoints:");
     log("  GET /timers                     - List timers");
     log("  GET /alarms                     - List alarms");
-    log("  GET /alarms/add?hours=...&minutes=...&name=...&days=...  - Add alarm");
+    log("  GET /alarms/add?hours=...&minutes=...&name=...&days=...[&topic=...&payload=...]  - Add alarm");
     log("  GET /alarms/remove?id=...       - Remove alarm");
     log("  GET /alarms/toggle?id=...       - Toggle alarm");
     log("  GET /health                     - Health check (no auth required)");

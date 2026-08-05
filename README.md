@@ -493,6 +493,10 @@ Options:
           Scene name
       --list [<LIST>]
           List devices, rooms, scenes, lights, or sensors [possible values: devices, rooms, scenes, lights, sensors]
+      --status
+          Show a formatted device status table including state, battery, temperature
+      --state-file <STATE_FILE>
+          Path to local state.json (overrides API fetch) [env: ZIGDUCK_STATE_FILE=]
       --pair [<PAIR>]
           Pairing duration in seconds (default: 120)
       --all-lights [<ALL_LIGHTS>]

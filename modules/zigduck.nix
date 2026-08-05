@@ -602,13 +602,7 @@ in {
         "d ${cfg.stateDir}/.config/duckTrace 0750 zigduck zigduck - -"
         "d ${cfg.stateDir}/intent_data 0750 zigduck zigduck - -"
       ];
-      
-      environment.etc."dark-time.conf".text = ''
-        DARK_TIME_ENABLED="${if config.house.zigbee.darkTime.enable then "1" else "0"}"
-        DARK_TIME_START="${config.house.zigbee.darkTime.start}"
-        DARK_TIME_END="${config.house.zigbee.darkTime.end}"
-      '';    
-      
+            
     })
 
     (mkIf cfg.cli.enable {

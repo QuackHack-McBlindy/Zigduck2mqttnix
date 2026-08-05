@@ -103,7 +103,6 @@ fn play_playlist(ip: &str, playlist_url: &str) {
         playlist_url
     );
     adb(ip, &["shell", &cmd]);
-    adb(ip, &["shell", &cmd]);    
 }
 
 

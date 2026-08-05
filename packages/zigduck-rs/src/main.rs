@@ -444,7 +444,7 @@ impl ZigduckState {
                 }
                 // 🦆 says ⮞ check conditions
                 if self.check_conditions(&automation.conditions).await {
-                    dt_debug!("Triggering MQTT automation: {}", automation.description);
+                    dt_info!("Triggering MQTT automation: {}", automation.description);
                     for action in &automation.actions {
                         if let Err(e) = self.execute_automation_action_mqtt(action, "mqtt_triggered", "global", topic, payload) {
                             dt_debug!("Error executing MQTT automation action: {}", e);
@@ -1664,7 +1664,7 @@ impl ZigduckState {
                         dt_info!("Failed to write last_motion.json: {}", e);
                     }
 
-                    dt_debug!("🕵️ Motion in {} {}", device_name, room);
+                    dt_info!("🕵️ Motion in {} {}", device_name, room);
 
                     self.execute_automations("motion", "motion_detected", device_name, &room)?;
                     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -1679,9 +1679,7 @@ impl ZigduckState {
                         if !self.has_motion_automation_for_room(&room) {
                             self.room_lights_on(&room)?;
                         }
-                    } else {
-                        dt_debug!("❌ Daytime - no lights activated by motion.");
-                    }
+                    } else { dt_info!("❌ Daytime - no lights activated by motion."); }
                 } else {
                     dt_debug!("🛑 No more motion in {} {}", device_name, room);
                     self.execute_automations("motion", "motion_not_detected", device_name, &room)?;

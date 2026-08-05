@@ -28,6 +28,7 @@ anyhow = "1.0"
 colored = "2.1"
 reqwest = { version = "0.11", features = ["blocking", "json"] }
 multipart = "0.18"
+comfy-table = "7.2.2"
 
 [[bin]]
 name = "zigduck-cli"
