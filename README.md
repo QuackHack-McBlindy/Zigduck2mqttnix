@@ -405,7 +405,10 @@ Automations
             enable = true;
             description = "set morning wakeup alarm (dont miss lunch)";
             # 01 AM mon-fri 
-            schedule = "0 1 * * 1-5";
+            schedule = {
+              start = "01:00";
+              days = ["mon" "tue" "wed" "thu" "fri"];
+            };
             conditions = [ { type = "someone_home"; value = true; } ];
             # 11 AM (i like to sleep in)
             actions = [ "zigduck-cli alarm add --hours 11 --minutes 00" ];
