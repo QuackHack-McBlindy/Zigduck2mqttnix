@@ -11,6 +11,8 @@ Nix for configuration, Rust for responsive async runtime.
 Under the hood: zigbee2mqtt, Mosquitto, serde_json and adb.   
   
 Define once, forget forever.   
+
+Zigduck2mqttnix uses smart defaults, after defining your devices -- most users don’t need to write any automations at all.  
   
 An optional dashboard page is generated from the defined Nix configuration to display customized cards as well as scene activation and device control on-the-fly.   
  
@@ -290,12 +292,45 @@ Automations
 
         # 1. MQTT triggered automations
         mqtt_triggered = {
-          temperature = {
+          alarm_wakeup = {
             enable = true;
-            description = "Updating temperature data on dashboard";
-            topic = "zigbee2mqtt/Motion Sensor Hall";
-            actions = [{ type = "shell"; command = Mqtt2jsonHistory "temperature" "temperature.json"; }];
+            description = "Time to wake up!";
+            topic = "zigbee2mqtt/alarm/triggered";
+            actions = [  # 🦆 says ⮞ max lightz
+              { type = "scene"; scene = "max"; }
+              # 🦆 says ⮞ fuck up bed (neck up + feet up)
+              { type = "mqtt"; topic = "zigbee2mqtt/Robot Arm 3/set"; message = ''{"state":"OFF"}''; }
+              { type = "mqtt"; topic = "zigbee2mqtt/Robot Arm 4/set"; message = ''{"state":"OFF"}''; }
+              { type = "wait"; duration = 10; }
+              # 🦆 says ⮞ FLASH!
+              { type = "scene"; scene = "dark-fast"; }
+              { type = "wait"; duration = 2; } # 🦆 ⮞ play sound on bedroom esp32 assistant
+              { type = "shell"; command = "curl http://192.168.1.13/api/settings/speaker/play/ding"; }              
+              { type = "scene"; scene = "max"; }
+              { type = "wait"; duration = 2; }     
+              # 🦆 says ⮞ ping watch with a ding
+              { type = "shell"; command = "curl http://192.168.1.15/api/settings/speaker/play/ding"; }          
+              { type = "wait"; duration = 10; }
+              # 🦆 says ⮞ roll up da blindz let da sun come in 
+              { type = "mqtt"; topic = "zigbee2mqtt/Roller Shade/set"; message = ''{"state":"ON"}''; }
+            ];
           };
+
+          timer_finish = {
+            enable = true;
+            description = "an timer is ringing";
+            topic = "zigbee2mqtt/timer/finished"; 
+            actions = [
+              { type = "scene"; scene = "max"; }
+              # 🦆 says ⮞ ping watch with ding
+              { type = "shell"; command = "curl http://192.168.1.15/api/settings/speaker/play/ding"; }
+              { type = "wait"; duration = 7; }
+              { type = "scene"; scene = "dark-fast"; }
+              { type = "wait"; duration = 2; }
+              { type = "scene"; scene = "max"; }              
+            ];
+          };
+        };
           
         # 2. room action automations
         room_actions = {
@@ -365,7 +400,18 @@ Automations
         };
         
         # 5. time based automations
-        time_based = {};
+        time_based = {       
+          morning_wakeup = {
+            enable = true;
+            description = "set morning wakeup alarm (dont miss lunch)";
+            # 01 AM mon-fri 
+            schedule = "0 1 * * 1-5";
+            conditions = [ { type = "someone_home"; value = true; } ];
+            # 11 AM (i like to sleep in)
+            actions = [ "zigduck-cli alarm add --hours 11 --minutes 00" ];
+          };
+        };
+ 
         
         # 6. presence based automations
         presence_based = {};        

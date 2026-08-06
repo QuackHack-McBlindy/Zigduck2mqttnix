@@ -81,10 +81,20 @@ fn resolve_device_ip(args: &Args, config: &Config) -> String {
 fn adb(ip: &str, cmd: &[&str]) -> std::process::Output {
     let mut args = vec!["-s", ip];
     args.extend(cmd);
-    Command::new("adb")
+    let output = Command::new("adb")
         .args(&args)
         .output()
-        .expect("Failed to execute adb")
+        .expect("adb not found or not executable");
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!(
+            "ADB command failed: adb -s {} {}\n{}",
+            ip,
+            cmd.join(" "),
+            stderr.trim()
+        );
+    }
+    output
 }
 
 fn adb_keyevent(ip: &str, key: &str) {
@@ -92,7 +102,15 @@ fn adb_keyevent(ip: &str, key: &str) {
 }
 
 fn wake_and_connect(ip: &str) {
-    Command::new("adb").args(["connect", ip]).output().ok();
+    let connect = Command::new("adb")
+        .args(["connect", ip])
+        .output()
+        .expect("Failed to run adb");
+    if !connect.status.success() {
+        let stderr = String::from_utf8_lossy(&connect.stderr);
+        eprintln!("ADB connect to {} failed:\n{}", ip, stderr.trim());
+        return;
+    }
     adb_keyevent(ip, "KEYCODE_WAKEUP");
 }
 

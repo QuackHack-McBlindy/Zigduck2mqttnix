@@ -598,44 +598,6 @@ in {
           default = {};
           description = "Scenes for Zigbee devices";
         };
-           
-        # TOOD remove?   
-        zigbee.darkTime = lib.mkOption {
-          type = lib.types.submodule {
-            options = {
-              enable = mkEnableOption "Enable dark time automations" // {
-                default = true;
-              };              
-              start = lib.mkOption {
-                type = lib.types.str;
-                default = "18:00";
-                description = "Start time of dark time range (in HH:MM)";
-              };
-              end = lib.mkOption {
-                type = lib.types.str;
-                default = "08:30";
-                description = "End time of dark time range (in HH:MM)";
-              };
-              after = lib.mkOption {
-                type = lib.types.int;
-                default = 16;
-                description = "Start time of dark time range (HH)";
-              };
-              before = lib.mkOption {
-                type = lib.types.int;
-                default = 9;
-                description = "End time of dark time range (HH format)";
-              }; 
-              duration = lib.mkOption {
-                type = lib.types.int;
-                default = 900; # 🦆 duck say ⮞ 15 minutes
-                description = "Number of seconds to wait before turning the lights off after motion is detected in dark time";
-              };              
-            };
-          };
-          default = {};
-          description = "Time range when it's considered dark (HH:MM format)";
-        };
  
         zigbee.motion = lib.mkOption {
           type = lib.types.submodule {

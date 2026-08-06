@@ -441,7 +441,7 @@ in {
           network_key=$(cat ${config.house.zigbee.networkKeyFile})
           sed -i "s|/run/secrets/mosquitto|$mosquitto_password|" ${config.house.zigbee.dataDir}/configuration.yaml
           TMPFILE="${config.house.zigbee.dataDir}/config.yaml"
-          CFGFILE="${config.house.zigbee.dataDir}/configuration.yaml"
+          CFGFILE="${config.house.zigbee.dataDir}/configuration.yaml"          
           ${pkgs.gawk}/bin/awk -v keyfile="${config.house.zigbee.networkKeyFile}" '
             /(^|[[:space:]])network_key:/ { found = 1 }
             { lines[NR] = $0 }
@@ -449,17 +449,24 @@ in {
               if (found) {
                 for (i = 1; i <= NR; i++) print lines[i]
               } else {
-                print lines[1]
-                print "  network_key:"
-                while ((getline line < keyfile) > 0) {
-                  print "    " line
+                advanced_inserted = 0
+                for (i = 1; i <= NR; i++) {
+                  if (!advanced_inserted && lines[i] ~ /^[[:space:]]*advanced:[[:space:]]*$/) {
+                    print lines[i]
+                    print "  network_key:"
+                    while ((getline line < keyfile) > 0) {
+                      print "    " line
+                    }
+                    close(keyfile)
+                    advanced_inserted = 1
+                  } else {
+                    print lines[i]
+                  }
                 }
-                close(keyfile)
-                for (i = 2; i <= NR; i++) print lines[i]
               }
             }
-          ' "$CFGFILE" > "$TMPFILE"      
-          cp "$TMPFILE" "$CFGFILE"
+          ' "$CFGFILE" > "$TMPFILE"   
+          mv "$TMPFILE" "$CFGFILE"
         '';
   
         serviceConfig = {
