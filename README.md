@@ -296,22 +296,22 @@ Automations
             enable = true;
             description = "Time to wake up!";
             topic = "zigbee2mqtt/alarm/triggered";
-            actions = [  # 🦆 says ⮞ max lightz
+            actions = [  
+              # play a nice song
+              { type = "shell"; command = "tv --typ youtube --search 'nisse snus'"; }     
+              # max lights
               { type = "scene"; scene = "max"; }
-              # 🦆 says ⮞ fuck up bed (neck up + feet up)
+              # control bed (neck up + feet up)
               { type = "mqtt"; topic = "zigbee2mqtt/Robot Arm 3/set"; message = ''{"state":"OFF"}''; }
               { type = "mqtt"; topic = "zigbee2mqtt/Robot Arm 4/set"; message = ''{"state":"OFF"}''; }
               { type = "wait"; duration = 10; }
-              # 🦆 says ⮞ FLASH!
               { type = "scene"; scene = "dark-fast"; }
-              { type = "wait"; duration = 2; } # 🦆 ⮞ play sound on bedroom esp32 assistant
+              { type = "wait"; duration = 2; }
               { type = "shell"; command = "curl http://192.168.1.13/api/settings/speaker/play/ding"; }              
               { type = "scene"; scene = "max"; }
               { type = "wait"; duration = 2; }     
-              # 🦆 says ⮞ ping watch with a ding
               { type = "shell"; command = "curl http://192.168.1.15/api/settings/speaker/play/ding"; }          
               { type = "wait"; duration = 10; }
-              # 🦆 says ⮞ roll up da blindz let da sun come in 
               { type = "mqtt"; topic = "zigbee2mqtt/Roller Shade/set"; message = ''{"state":"ON"}''; }
             ];
           };
@@ -322,7 +322,6 @@ Automations
             topic = "zigbee2mqtt/timer/finished"; 
             actions = [
               { type = "scene"; scene = "max"; }
-              # 🦆 says ⮞ ping watch with ding
               { type = "shell"; command = "curl http://192.168.1.15/api/settings/speaker/play/ding"; }
               { type = "wait"; duration = 7; }
               { type = "scene"; scene = "dark-fast"; }
@@ -435,7 +434,15 @@ Media (optional)
 
 ```nix
   house = {
+    # path to a file containing the service's HTTPS URL.
+    # example file contents: https://my-domain.org
+    https.urlFile = config.sops.secrets.webserver.path;
+    # root directory for the media library.
+    # the URL above should point to this service.
+    # no external port needs to be exposed as long as the TLS certificate remains valid.
     media.root = "/Pool";
+    
+    # media type directories
     media = {
       movies = "/Pool/Movies";
       tv = "/Pool/TV"; 
@@ -444,7 +451,8 @@ Media (optional)
       otherVideos = "/Pool/Other_Videos"; 
       podcasts = "/Pool/Podcasts";
     };
-    
+
+    # tv's    
     tv = {
       "my-tv" = {
         ip = "192.168.1.123";
@@ -597,22 +605,22 @@ Options:
 
 **Android tvOS controller**  
 
-
+**CLI usage:**  
 
 ```
-Remote control & cast media to an Android TV device via ADB
+Cast media to an Android TV device via ADB
 
 Usage: tv [OPTIONS] --typ <TYP>
 
 Options:
-  -t, --typ <TYP>              Media type (tv, movie, music, song, podcast, musicvideo, audiobook, othervideo, jukebox, up, down, next, previous, pause, play)
-  -s, --search <SEARCH>        Search query (fuzzy matched)
-      --season <SEASON>        Season number (for tv)
-      --room <ROOM>            Room name (maps to IP from config)
-      --ip <IP>                Device IP override
-      --no-shuffle             Disable shuffle
-      --max-items <MAX_ITEMS>  Max playlist items
-      --config <CONFIG>        Config file path [default: /etc/zigduck/tv-defaults.json]
+  -t, --typ <TYP>              [possible values: on, off, up, down, next, prev, pause, play, call, youtube, tv, movie, podcast, music, musicvideo, audiobook, jukebox, song, othervideo]
+  -s, --search <SEARCH>        
+      --season <SEASON>        
+      --room <ROOM>            
+      --ip <IP>                
+      --no-shuffle             
+      --max-items <MAX_ITEMS>  
+      --config <CONFIG>        [default: /etc/zigduck/tv-defaults.json]
   -h, --help                   Print help
 
 ```

@@ -36,7 +36,6 @@ let
     )
   );
 
-
   # 🦆 says ⮞ scene simplifier? or not
   sceneLight = {state, brightness ? 200, hex ? null, temp ? null}:
     let

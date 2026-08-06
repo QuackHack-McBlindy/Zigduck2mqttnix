@@ -7,10 +7,75 @@ use std::path::{Path, PathBuf};
 use std::env;
 use std::process::Command;
 
+#[derive(Deserialize, Debug)]
+struct YoutubeSearchResponse {
+    items: Vec<YoutubeItem>,
+}
+
+#[derive(Deserialize, Debug)]
+struct YoutubeItem {
+    id: YoutubeId,
+    snippet: YoutubeSnippet,
+}
+
+#[derive(Deserialize, Debug)]
+struct YoutubeId {
+    #[serde(rename = "videoId")]
+    video_id: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct YoutubeSnippet {
+    title: String,
+}
+
+fn search_youtube(query: &str, api_key: &str) -> Result<(String, String), String> {
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get("https://www.googleapis.com/youtube/v3/search")
+        .query(&[
+            ("part", "snippet"),
+            ("type", "video"),
+            ("maxResults", "1"),  // or "5" as in the original Bash
+            ("q", query),
+            ("key", api_key),
+        ])
+        .send()
+        .map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        return Err(format!("YouTube API error: {}", resp.status()));
+    }
+
+    let search_resp: YoutubeSearchResponse = resp.json().map_err(|e| e.to_string())?;
+    if let Some(item) = search_resp.items.first() {
+        let video_id = item.id.video_id.as_deref().unwrap_or("");
+        let title = &item.snippet.title;
+        if video_id.is_empty() {
+            return Err("No video ID in response".to_string());
+        }
+        Ok((
+            format!("https://www.youtube.com/watch?v={}", video_id),
+            title.clone(),
+        ))
+    } else {
+        Err("No results found".to_string())
+    }
+}
+
+
 #[derive(Parser)]
 #[command(about = "Cast media to an Android TV device via ADB")]
 struct Args {
-    #[arg(short, long)]
+    #[arg(
+        short,
+        long,
+        value_parser = [
+            "on", "off", "up", "down", "next", "prev", "pause", "play",
+            "call", "youtube", "tv", "movie", "podcast", "music", "musicvideo",
+            "audiobook", "jukebox", "song", "othervideo",
+        ]
+    )]
     typ: String,
 
     #[arg(short, long)]
@@ -46,6 +111,7 @@ struct Config {
     playlist_file: String,
     max_items: usize,
     shuffle: bool,
+    youtube_api_key_file: String,
 }
 
 
@@ -263,6 +329,14 @@ fn make_playlist_from_files(
 }
 
 
+fn play_youtube_video(ip: &str, video_url: &str) {
+    wake_and_connect(ip);
+    let cmd = format!(
+        "am start -a android.intent.action.VIEW -d \"{}\" com.google.android.youtube.tv",
+        video_url
+    );
+    adb(ip, &["shell", &cmd]);
+}
 
 // MAIN
 fn main() {
@@ -274,12 +348,18 @@ fn main() {
         }
     }
 
+
     let config = load_config(&args.config);
     let device_ip = resolve_device_ip(&args, &config);
     let webserver_url = config.webserver(); 
 
     let shuffle = !args.no_shuffle && config.shuffle;
     let max_items = args.max_items.unwrap_or(config.max_items);
+
+    let youtube_api_key = std::fs::read_to_string(&config.youtube_api_key_file)
+        .expect("Failed to read YouTube API key")
+        .trim()
+        .to_string();
 
     let typ = args.typ.to_lowercase();
 
@@ -336,7 +416,26 @@ fn main() {
             adb(&device_ip, &["shell", cmd]);
             println!("Calling remote... beep ... beep!");
             return;
+        }        
+        "youtube" => {
+            let query = match &args.search {
+                Some(q) => q,
+                None => {
+                    eprintln!("Search query required for YouTube");
+                    return;
+                }
+            };
+            match search_youtube(query, &youtube_api_key) {
+                Ok((video_url, title)) => {
+                    println!("Playing YouTube video: {}", title);
+                    play_youtube_video(&device_ip, &video_url);
+                }
+                Err(e) => eprintln!("YouTube search failed: {}", e),
+            }
+            return;
         }
+        
+
         _ => {}
     }
 

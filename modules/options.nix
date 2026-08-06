@@ -44,8 +44,8 @@
     device_ip   = defaultIP;
     inherit rooms;
     inherit directories;
-    webserver_file = if config.house.https.domainNameFile != null
-                             then config.house.https.domainNameFile
+    webserver_file = if config.house.https.urlFile != null
+                             then config.house.https.urlFile
                              else null;    
     playlist_file  = config.house.media.root + "/playlist.m3u";
     max_items      = 200;
@@ -69,7 +69,7 @@ in {
     
     options.house = {
       https = {
-        domainNameFile = lib.mkOption {
+        urlFile = lib.mkOption {
           type = lib.types.path;
           description = ''
             File containing full https url.
