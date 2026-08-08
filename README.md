@@ -7,7 +7,7 @@
 <br>
 
 Declarative full-stack Zigbee home automation system that's reproducible and deployable.  
-Nix for configuration, Rust for responsive async runtime.  
+Nix for configuration, Rust for responsive async runtime. 
 Under the hood: zigbee2mqtt, Mosquitto, serde_json and adb.   
   
 Define once, forget forever.   
@@ -108,7 +108,7 @@ Use `Zigduck2mqttnix`:
 
 
 <details><summary><strong>
-Zigbee configuration
+🛜 Zigbee configuration
 </strong></summary>
 
 **Example configuration:**
@@ -150,7 +150,7 @@ Zigbee configuration
 </details>
 
 <details><summary><strong>
-Rooms
+🛁 Rooms
 </strong></summary>
 
 **Example configuration:**
@@ -171,7 +171,7 @@ Rooms
 </details>
 
 <details><summary><strong>
-Lights /  Devices 
+💡 Lights /  Devices 
 </strong></summary>
 
   
@@ -234,7 +234,7 @@ Define a dimmer, or motion sensor it'those devices would default to control that
 
 
 <details><summary><strong>
-Dimmers /  Motion 
+🎚 Dimmers /  Motion (optional)
 </strong></summary>
 
 **Example configuraiton:**  
@@ -266,7 +266,7 @@ Dimmers /  Motion
 </details>
 
 <details><summary><strong>
-Scenes
+🎨 Scenes (optional)
 </strong></summary>
 
 
@@ -291,7 +291,7 @@ Scenes
 
 
 <details><summary><strong>
-Automations
+ Automations (optional)
 </strong></summary>
 
 **Example configuraiton:**  
@@ -461,7 +461,7 @@ Automations
 
 
 <details><summary><strong>
-Media (optional)
+📺 Media (optional)
 </strong></summary>
 
 **Example configuraiton:**  
@@ -506,7 +506,7 @@ Media (optional)
 
 
 <details><summary><strong>
-Dashboard (optional) 
+🌐 Dashboard (optional) 
 </strong></summary>
 
 <br>
