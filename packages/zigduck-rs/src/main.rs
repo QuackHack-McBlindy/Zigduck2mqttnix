@@ -17,6 +17,12 @@ struct MosquittoConfig {
     broker: String,
     user: String,
     password_file: Option<String>,
+    #[serde(default = "default_base_topic")]
+    base_topic: String,
+}
+
+fn default_base_topic() -> String {
+    "zigbee2mqtt".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,6 +208,7 @@ struct ZigduckState {
     mqtt_user: String,
     mqtt_password: String,
     mqtt_publisher: rumqttc::AsyncClient,
+    mqtt_base_topic: String,
     dashboard_config: DashboardConfig,
     state_dir: String,
     state_file: String,
@@ -230,6 +237,7 @@ impl Clone for ZigduckState {
             mqtt_user: self.mqtt_user.clone(),
             mqtt_password: self.mqtt_password.clone(),
             mqtt_publisher: self.mqtt_publisher.clone(),
+            mqtt_base_topic: self.mqtt_base_topic.clone(),
             dashboard_config: self.dashboard_config.clone(),
             state_dir: self.state_dir.clone(),
             state_file: self.state_file.clone(),
@@ -417,7 +425,7 @@ impl ZigduckState {
                     } else { dt_warning!("Hue light {} missing hue_id", device_name); }
                 }
                 "light" | _ => {
-                    let topic = format!("zigbee2mqtt/{}/set", device_name);
+                    let topic = format!("{}/{}/set", self.mqtt_base_topic, device_name);
                     let payload = serde_json::to_string(settings)?;
                     if let Err(e) = self.mqtt_publish(&topic, &payload).await {
                         dt_warning!("Failed to publish MQTT for {}: {}", device_name, e);
@@ -736,6 +744,11 @@ impl ZigduckState {
             (broker, user, password)
         };
 
+        let mqtt_base_topic = config.mosquitto
+            .as_ref()
+            .map(|m| m.base_topic.clone())
+            .unwrap_or_else(|| "zigbee2mqtt".to_string());
+
         // load Hue client from config
         let hue_client = if let Some(hue) = &config.hue {
             if let (Some(ip), Some(pw_file)) = (&hue.bridge_ip, &hue.password_file) {
@@ -898,6 +911,7 @@ impl ZigduckState {
             mqtt_user,
             mqtt_password,
             mqtt_publisher,
+            mqtt_base_topic,
             hue_client,
             state_dir,
             state_file,
@@ -1298,7 +1312,7 @@ impl ZigduckState {
         for (device_id, device) in &self.devices {
             if device.room == room && device.device_type == "light" {
                 let message = json!({ "state": "ON" });
-                let topic = format!("zigbee2mqtt/{}/set", device_id);
+                let topic = format!("{}/{}/set", self.mqtt_base_topic, device_id);
                 if let Err(e) = self.mqtt_publish(&topic, &message.to_string()).await {
                     dt_info!("Failed to turn on {}: {}", device_id, e);
                 }
@@ -1312,7 +1326,7 @@ impl ZigduckState {
         for (device_id, device) in &self.devices {
             if device.room == room && device.device_type == "light" {
                 let message = json!({ "state": "OFF" });
-                let topic = format!("zigbee2mqtt/{}/set", device_id);
+                let topic = format!("{}/{}/set", self.mqtt_base_topic, device_id);
                 if let Err(e) = self.mqtt_publish(&topic, &message.to_string()).await {
                     dt_info!("Failed to turn off {}: {}", device_id, e);
                 }
@@ -1379,7 +1393,7 @@ impl ZigduckState {
                 if let Some(brightness) = brightness {
                     message.insert("brightness".to_string(), Value::Number(brightness.into()));
                 }
-                let topic = format!("zigbee2mqtt/{}/set", device_id);
+                let topic = format!("{}/{}/set", self.mqtt_base_topic, device_id);
                 if let Err(e) = self.mqtt_publish(&topic, &Value::Object(message).to_string()).await {
                     dt_info!("Failed to control {}: {}", device_id, e);
                 }
@@ -1505,7 +1519,7 @@ impl ZigduckState {
 
                 // 🦆 says ⮞ not hue? publish to mqtt
                 _ => {
-                    let topic = format!("zigbee2mqtt/{}/set", device_info.id);
+                    let topic = format!("{}/{}/set", self.mqtt_base_topic, device_info.id);
                     dt_debug!("MQTT → {}", topic);
                     self.mqtt_publish(&topic, payload).await?;
                 }
@@ -1543,9 +1557,14 @@ impl ZigduckState {
             }
         };
 
+        let device_cmd_prefix = format!("{}/device_command/", self.mqtt_base_topic);
+        let dash_card_prefix = format!("{}/dashboard/card/", self.mqtt_base_topic);
+        let scene_prefix      = format!("{}/scene/", self.mqtt_base_topic);
+        let tv_prefix         = format!("{}/tv/", self.mqtt_base_topic);
+
         // 🦆 says ⮞ unified hue & z2m topic
-        if topic.starts_with("zigbee2mqtt/device_command/") {
-            let device_id = topic.strip_prefix("zigbee2mqtt/device_command/").unwrap_or("");
+        if topic.starts_with(&device_cmd_prefix) {
+            let device_id = topic.strip_prefix(&device_cmd_prefix).unwrap_or("");
             if !device_id.is_empty() {
                 return self.handle_device_command(device_id, payload).await;
             }
@@ -1554,9 +1573,9 @@ impl ZigduckState {
 
 
         // 🦆 says ⮞ dashboard status card clicks automations
-        if topic.starts_with("zigbee2mqtt/dashboard/card/") && topic.ends_with("/click") {
+        if topic.starts_with(&dash_card_prefix) && topic.ends_with("/click") {
             let card_name = topic
-                .strip_prefix("zigbee2mqtt/dashboard/card/")
+                .strip_prefix(&dash_card_prefix)
                 .and_then(|s| s.strip_suffix("/click"))
                 .unwrap_or("");
 
@@ -1582,8 +1601,8 @@ impl ZigduckState {
         }
 
         // 🦆 says ⮞ dashboard triggered scene activation
-        if topic.starts_with("zigbee2mqtt/scene/") {
-            let scene_name = topic.strip_prefix("zigbee2mqtt/scene/").unwrap_or("");
+        if topic.starts_with(&scene_prefix) {
+            let scene_name = topic.strip_prefix(&scene_prefix).unwrap_or("");
 
             if !scene_name.is_empty() {
                 dt_debug!("activating scene: {}", scene_name);
@@ -1596,7 +1615,7 @@ impl ZigduckState {
         }
 
         // 🦆 says ⮞ tv
-        if topic.starts_with("zigbee2mqtt/tv/") && topic.ends_with("/channel") {
+        if topic.starts_with(&tv_prefix) && topic.ends_with("/channel") {
             if let Some(device_ip) = topic.split('/').nth(2) {
                 if let (Some(channel_id), Some(channel_name)) = (
                     data["channel_id"].as_str(),
@@ -1613,7 +1632,8 @@ impl ZigduckState {
             return Ok(());
         }
 
-        let device_name = topic.strip_prefix("zigbee2mqtt/").unwrap_or(topic);
+        let prefix = format!("{}/", self.mqtt_base_topic);
+        let device_name = topic.strip_prefix(&prefix).unwrap_or(topic);
 
         // 🦆 says ⮞ STATE UPDATES
         if let Err(e) = self.update_device_state_from_data(device_name, &data) {
@@ -1789,7 +1809,7 @@ impl ZigduckState {
                             if light_device.room == r && light_device.device_type == "light" {
                                 dt_info!("🔺 Increasing brightness on {} in {}", light_id, r);
                                 let message = json!({"brightness_step": 50, "transition": 3.5});
-                                let topic = format!("zigbee2mqtt/{}/set", light_id);
+                                let topic = format!("{}/{}/set", self.mqtt_base_topic, light_id);
                                 self.mqtt_publish(&topic, &message.to_string()).await?;
                             }
                         }
@@ -1801,7 +1821,7 @@ impl ZigduckState {
                             if light_device.room == r && light_device.device_type == "light" {
                                 dt_info!("🔻 Decreasing {} in {}", light_id, r);
                                 let message = json!({"brightness_step": -50, "transition": 3.5});
-                                let topic = format!("zigbee2mqtt/{}/set", light_id);
+                                let topic = format!("{}/{}/set", self.mqtt_base_topic, light_id);
                                 self.mqtt_publish(&topic, &message.to_string()).await?;
                             }
                         }
@@ -1853,7 +1873,8 @@ impl ZigduckState {
         mqttoptions.set_max_packet_size(1024 * 1024, 1024 * 1024); // 🦆 says ⮞ 1MB
 
         let (mut client, mut connection) = Client::new(mqttoptions, 10);
-        client.subscribe("zigbee2mqtt/#", QoS::AtMostOnce)?;
+        let sub_topic = format!("{}/#", self.mqtt_base_topic);
+        client.subscribe(&sub_topic, QoS::AtMostOnce)?;
 
         dt_info!("Connected to MQTT broker: {}", &self.mqtt_broker);
         dt_info!("[🦆🏡] ⮞ Welcome Home");
@@ -1885,7 +1906,7 @@ impl ZigduckState {
                     client = new_client;
                     connection = new_connection;
 
-                    match client.subscribe("zigbee2mqtt/#", QoS::AtMostOnce) {
+                    match client.subscribe(&sub_topic, QoS::AtMostOnce) {
                         Ok(_) => dt_info!("Successfully reconnected and subscribed"),
                         Err(e) => dt_warning!("Failed to subscribe after reconnect: {}", e),
                     }

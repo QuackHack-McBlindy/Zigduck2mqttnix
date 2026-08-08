@@ -42,6 +42,12 @@ struct MosquittoConfig {
     broker: String,
     user: String,
     password_file: Option<String>,
+    #[serde(default = "default_base_topic")]
+    base_topic: String,
+}
+
+fn default_base_topic() -> String {
+    "zigbee2mqtt".to_string()
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -81,18 +87,10 @@ enum AlarmAction {
         name: String,
         #[arg(long)]
         days: Option<String>,
-        #[arg(
-            long,
-            default_value = "zigbee2mqtt/alarm/triggered",
-            help = "MQTT topic to publish when alarm fires"
-        )]
-        topic: String,
-        #[arg(
-            long,
-            default_value = r#"{"alarm":"triggered"}"#,
-            help = "MQTT payload to publish"
-        )]
-        payload: String,
+        #[arg(long, help = "MQTT topic to publish when alarm fires")]
+        topic: Option<String>,
+        #[arg(long, help = "MQTT payload to publish")]
+        payload: Option<String>,
     },
     Remove {
         #[arg(long)]
@@ -114,22 +112,13 @@ enum TimerAction {
         minutes: Option<u32>,
         #[arg(long, help = "Seconds")]
         seconds: Option<u32>,
-        #[arg(
-            long,
-            help = "MQTT topic to publish when timer fires",
-            default_value = "zigbee2mqtt/timer/finished"
-        )]
-        topic: String,
-        #[arg(
-            long,
-            help = "MQTT payload to publish",
-            default_value = r#"{"status":"finished"}"#
-        )]
-        payload: String,
+        #[arg(long, help = "MQTT topic to publish when timer fires")]
+        topic: Option<String>,
+        #[arg(long, help = "MQTT payload to publish")]
+        payload: Option<String>,
         #[arg(long, help = "Human‑readable name for the timer")]
         name: Option<String>,
-    },
-    
+    },    
     Pause {
         #[arg(long, help = "Timer ID")]
         id: u64,
@@ -366,6 +355,7 @@ struct ZigduckController {
 	devices: HashMap<String, DeviceConfig>,
 	scenes: HashMap<String, SceneConfig>,
 	verbose: bool,
+	base_topic: String,
 }
 
 impl ZigduckController {
@@ -378,6 +368,7 @@ impl ZigduckController {
 	    devices_config: Option<PathBuf>,
 	    scenes_config: Option<PathBuf>,
 	    verbose: bool,
+	    base_topic: String,
 	) -> Result<Self> {
 	    let mut mqttoptions = MqttOptions::new("zigduck-cli", &broker, 1883);
 	    mqttoptions.set_credentials(&user, &password);
@@ -424,6 +415,7 @@ impl ZigduckController {
 	        devices,
 	        scenes,
 	        verbose,
+	        base_topic,
 	    })
 	}
 	
@@ -746,7 +738,7 @@ fn control_device_with_params(
 	        }
 	    }
 	    
-	    let topic = format!("zigbee2mqtt/{}/set", device_name);
+  	    let topic = format!("{}/{}/set", self.base_topic, device_name);
 	    self.publish_mqtt(&topic, serde_json::Value::Object(payload))
 	}
 	
@@ -792,7 +784,7 @@ fn control_device_with_json(
 	}
 	
 	fn control_zigbee_with_json(&mut self, device_name: &str, payload: serde_json::Value) -> Result<()> {
-	    let topic = format!("zigbee2mqtt/{}/set", device_name);
+	    let topic = format!("{}/{}/set", self.base_topic, device_name);
 	    self.publish_mqtt(&topic, payload)
 	}
 	
@@ -901,7 +893,7 @@ fn activate_scene(&mut self, scene_name: &str, random: bool, room_filter: Option
                     println!("{} Skipping Hue device {}: Hue client not initialized", "⚠️".yellow(), device_name);
                 }
             } else {
-                let topic = format!("zigbee2mqtt/{}/set", device_name);
+                let topic = format!("{}/{}/set", self.base_topic, device_name);
                 if self.verbose {
                     println!("{} MQTT {} → {}", "🦆".cyan(), topic, settings.to_string());
                 }
@@ -987,7 +979,8 @@ Ok(serde_json::Value::Object(payload))
 	        "time": duration
 	    });
 	    
-	    self.publish_mqtt("zigbee2mqtt/bridge/request/permit_join", enable_payload)?;
+  	    let pairing_topic = format!("{}/bridge/request/permit_join", self.base_topic);
+        self.publish_mqtt(&pairing_topic, enable_payload)?;
 	    
 	    if watch {
 	        println!("{} Watching for new devices...", "👀".cyan());
@@ -1002,7 +995,7 @@ Ok(serde_json::Value::Object(payload))
 	        "value": false
 	    });
 	    
-	    self.publish_mqtt("zigbee2mqtt/bridge/request/permit_join", disable_payload)?;
+   	    self.publish_mqtt(&pairing_topic, disable_payload)?;
 	    
 	    println!("{} Pairing mode finished", "✅".green());
 	    Ok(())
@@ -1544,11 +1537,18 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let base_topic = if let Some(cfg) = &config {
+        cfg.mosquitto.as_ref()
+            .map(|m| m.base_topic.clone())
+            .unwrap_or_else(|| "zigbee2mqtt".to_string())
+    } else { "zigbee2mqtt".to_string() };
+
     let mut controller = ZigduckController::new(
         cli.broker, cli.user, password,
         cli.hue_bridge_ip, hue_api_key,
         cli.devices_config, cli.scenes_config,
         cli.verbose > 0,
+        base_topic.clone(),
     )?;
 
     
@@ -1563,9 +1563,8 @@ fn main() -> Result<()> {
                     if h == 0 && m == 0 && s == 0 {
                         anyhow::bail!("At least one of hours/minutes/seconds must be positive");
                     }
-                    if topic.is_empty() || payload.is_empty() {
-                        anyhow::bail!("--topic and --payload are required");
-                    }
+                    let topic = topic.unwrap_or_else(|| format!("{}/timer/finished", base_topic));
+                    let payload = payload.unwrap_or_else(|| r#"{"status":"finished"}"#.to_string());
                     api_set_timer(&api_url, &api_password, h, m, s, &topic, &payload, name.as_deref())?;
                 }
                 TimerAction::Pause { id } => api_pause_timer(&api_url, &api_password, id)?,
@@ -1575,6 +1574,8 @@ fn main() -> Result<()> {
             Commands::Alarm { action } => match action {
                 AlarmAction::List => api_list_alarms(&api_url, &api_password)?,
                 AlarmAction::Add { hours, minutes, name, days, topic, payload } => {
+                    let topic = topic.unwrap_or_else(|| format!("{}/alarm/triggered", base_topic));
+                    let payload = payload.unwrap_or_else(|| r#"{"alarm":"triggered"}"#.to_string());
                     api_add_alarm(
                         &api_url,
                         &api_password,

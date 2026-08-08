@@ -12,7 +12,7 @@ Under the hood: zigbee2mqtt, Mosquitto, serde_json and adb.
   
 Define once, forget forever.   
 
-Zigduck2mqttnix uses smart defaults, after defining your devices -- most users don’t need to write any automations at all.  
+Zigduck2mqttnix uses smart defaults, after defining your rooms & devices -- most users don’t need to write any automations at all.  
   
 An optional dashboard page is generated from the defined Nix configuration to display customized cards as well as scene activation and device control on-the-fly.   
  
@@ -173,6 +173,7 @@ Rooms
 Lights /  Devices 
 </strong></summary>
 
+  
 zigduck2mqttnix always uses smart defaults.   
 Define a dimmer, or motion sensor it'those devices would default to control that room, unless overidden.     
 
@@ -297,13 +298,15 @@ Automations
             description = "Time to wake up!";
             topic = "zigbee2mqtt/alarm/triggered";
             actions = [  
-              # play a nice song
+              # there are 4 different automation action types
+              # 1. shell
               { type = "shell"; command = "tv --typ youtube --search 'nisse snus'"; }     
-              # max lights
+              # 2. scene
               { type = "scene"; scene = "max"; }
-              # control bed (neck up + feet up)
+              # 3. mqtt
               { type = "mqtt"; topic = "zigbee2mqtt/Robot Arm 3/set"; message = ''{"state":"OFF"}''; }
               { type = "mqtt"; topic = "zigbee2mqtt/Robot Arm 4/set"; message = ''{"state":"OFF"}''; }
+              # 4. wait
               { type = "wait"; duration = 10; }
               { type = "scene"; scene = "dark-fast"; }
               { type = "wait"; duration = 2; }
@@ -334,7 +337,8 @@ Automations
         # 2. room action automations
         room_actions = {
           hallway = { 
-            door_opened = [];
+            # sinple string can be used as "shell" automation action
+            door_opened = ["curl http://192.168.1.15/api/settings/speaker/play/ding";];
             door_closed = [];
           };
           
@@ -434,14 +438,17 @@ Media (optional)
 
 ```nix
   house = {
-    # path to a file containing the service's HTTPS URL.
-    # example file contents: https://my-domain.org
+    # path to a file containing user 's HTTPS URL.
+    # example file contents: https://media.my-domain.org
     https.urlFile = config.sops.secrets.webserver.path;
     # root directory for the media library.
     # the URL above should point to this service.
     # no external port needs to be exposed as long as the TLS certificate remains valid.
     media.root = "/Pool";
     
+    # YouTube API token
+    media.youtubePasswordFile = config.sops.secrets.youtubeAPI.path;
+        
     # media type directories
     media = {
       movies = "/Pool/Movies";
@@ -451,6 +458,7 @@ Media (optional)
       otherVideos = "/Pool/Other_Videos"; 
       podcasts = "/Pool/Podcasts";
     };
+
 
     # tv's    
     tv = {
@@ -468,14 +476,68 @@ Media (optional)
 
 
 <details><summary><strong>
-Dashboard (Optional) 
+Dashboard (optional) 
 </strong></summary>
 
-**Example configuraiton:**  
+<br>
+
+<a href="https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/images/IMG_3316.png">
+  <img src="images/IMG_3316.png" alt="Rooms" width="148">
+</a>
+
+<a href="https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/images/IMG_3314.png">
+  <img src="images/IMG_3314.png" alt="Device" width="148">
+</a> 
+
+<a href="https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/images/IMG_3315.png">
+  <img src="images/IMG_3315.png" alt="Device" width="148">
+</a> 
+
+<a href="https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/images/IMG_3313.png">
+  <img src="images/IMG_3313.png" alt="Scenes" width="148">
+</a> <br> <br>
+
+
+
+**Example optional configuraiton:**  
 
 
 ```
-    house.dashboard = {
+  house = {
+    zigbee.automations = {
+      mqtt_triggered = {    
+        temperature_update = {
+          enable = true;
+          description = "Update living room temperature on the dashboard";
+          topic = "zigbee2mqtt/Living Room Sensor";
+          actions = [
+            {
+              type = "shell";
+              command = ''
+                # Read the MQTT payload, extract the "temperature" field,
+                # and write it to /var/lib/zigduck/temperature.json with a history array.
+                VALUE=$(echo "$MQTT_PAYLOAD" | jq '.temperature')
+                FILE="/var/lib/zigduck/temperature.json"
+                mkdir -p "$(dirname "$FILE")"
+
+                if [ ! -s "$FILE" ]; then
+                  jq -n --argjson v "$VALUE" '{ temperature: $v, history: [$v] }' > "$FILE"
+                else
+                  jq --argjson v "$VALUE" '
+                    .temperature = $v |
+                    .history += [$v] |
+                    .history = (.history[-200:])
+                  ' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+                fi
+              '';
+            }
+          ];
+        };
+      };  
+    };   
+    
+    dashboard = {
+      # optional status cards
       statusCards = {    
         temperature = {
           enable = true;
@@ -512,6 +574,9 @@ Dashboard (Optional)
 <details><summary><strong>
 Commandline 
 </strong></summary>
+
+**Zigduck-CLI**  
+
 
 ```
 Usage: zigduck-cli [OPTIONS] [COMMAND]
@@ -605,7 +670,7 @@ Options:
 
 **Android tvOS controller**  
 
-**CLI usage:**  
+**tv:**  
 
 ```
 Cast media to an Android TV device via ADB

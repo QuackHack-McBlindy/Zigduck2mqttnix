@@ -75,6 +75,7 @@ in {
             File containing full https url.
             This should be served as webserver. (TLS req?)
             Example: "https://my-domain.com"
+            If you don't have a domain, you can use https://www.duckdns.org/ for free.
           '';
           default = "";
         };
@@ -137,7 +138,11 @@ in {
         
         youtubePasswordFile = mkOption {
           type = types.path;
-          description = "Password file containing youTubea API token";
+          description = ''
+            Path to a file containing your YouTube Data API v3 key.
+            Obtain a key from https://console.cloud.google.com/apis/credentials.
+            The file should contain only the API key string (no extra whitespace).
+          '';
         };
       };    
     
@@ -269,7 +274,10 @@ in {
                   };
                   scrape_url = lib.mkOption {
                     type = lib.types.str;
-                    description = "Scrape URL for TV-Guide";
+                    description = ''
+                      URL from which to scrape TV guide data for this channel.
+                      Only used as reference for user provided external script.
+                    '';
                     default = "";
                   };      
                 };
@@ -314,7 +322,16 @@ in {
         # Zigbee network key      
         networkKeyFile = mkOption {
           type = types.path;
-          description = "Path to the Zigbee network key file.";
+          description = ''
+            Path to a file containing the Zigbee network key (Zigbee2MQTT's `network_key`).
+            Copy your existing one from your Zigbee2mqtt configuraiton.yaml file.
+            Having this key saved avoids user having to repair his/her devices.
+            Example content:
+              - 86
+              - 208
+              ...
+              ...
+          '';
         };
       };
 
@@ -336,6 +353,11 @@ in {
               type = types.nullOr types.path;
               default = null;
               description = "Path to file containing MQTT password";
+            };
+            baseTopic = mkOption {
+              type = types.str;
+              default = "zigbee2mqtt";
+              description = "MQTT base topic used by Zigbee2mqtt and the zigduck runtime.";
             };
             # 🦆 says ⮞ SSL/TLS options for secure MQTT connections
             ssl = {
@@ -400,7 +422,12 @@ in {
               };
               passwordFile = mkOption {
                 type = types.path;
-                description = "File containing the Hue Bridge API key (username)";
+                description = ''
+                  Path to a file containing the Hue Bridge API key (username).
+                  To get a key, press the physical button on your Hue Bridge, then run:
+                    curl -X POST http://<bridge-ip>/api -d '{"devicetype":"house#nixos"}'
+                  The response will contain a `username` field – save that string in this file.
+                '';
               };
             };      
             # hue sync box configuration

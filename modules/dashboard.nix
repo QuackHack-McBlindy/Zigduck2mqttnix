@@ -27,6 +27,7 @@ let
   };
 
 
+
   tvConfig = builtins.trace "TV config: ${builtins.toJSON config.house.tv}" config.house.tv;
 
   # 🦆 says ⮞ define Zigbee devices here yo 
@@ -102,7 +103,7 @@ let
       json = builtins.toJSON settings;
     in
       ''
-      mqtt_pub -t "zigbee2mqtt/''${device}/set" -m '''${json}'
+      mqtt_pub -t "${config.house.zigbee.mosquitto.baseTopic}/''${device}/set" -m '''${json}'
       '';
       
   sceneCommands = lib.mapAttrs
@@ -455,7 +456,9 @@ let
     ln -sf /var/lib/zigduck/state.json $WORKDIR/  
     ln -sf /etc/static/epg.json $WORKDIR/   
 
+
     # 🦆 says ⮞ symlink all status card JSON files
+    ln -sf /etc/zigduck/status-cards-config.json.json $WORKDIR/   
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: card: 
       if card.enable then "ln -sf ${card.filePath} $WORKDIR/${builtins.baseNameOf card.filePath};" else ""
     ) config.house.dashboard.statusCards)}
@@ -1414,7 +1417,7 @@ EOF
                             statusElement.className = 'connection-status status-connected';
                             statusElement.innerHTML = '<i class="fas fa-plug"></i><span>🟢</span>';
                             
-                            client.subscribe('zigbee2mqtt/#', function(err) {
+                            client.subscribe('${config.house.zigbee.mosquitto.baseTopic}/#', function(err) {
                                 if (!err) {
                                     showNotification('Subscribed to all devices', 'success');
                                 }
@@ -1435,7 +1438,7 @@ EOF
                             const deviceName = topicParts[1];
 
                             // 🦆 says ⮞ handle TV channel updates
-                            if (topic.startsWith('zigbee2mqtt/tv/') && topic.endsWith('/channel')) {
+                            if (topic.startsWith('${config.house.zigbee.mosquitto.baseTopic}/tv/') && topic.endsWith('/channel')) {
                                 try {
                                     const data = JSON.parse(message.toString());
                                     const deviceIp = topicParts[2];
@@ -1554,7 +1557,7 @@ EOF
                     const statusText = data.state === 'ON' ? 'On • Connected' : 'Off • Connected';
                     document.getElementById('currentDeviceStatus').textContent = statusText;
                     
-                    const topic = `zigbee2mqtt/''${selectedDevice}`;
+                    const topic = `${config.house.zigbee.mosquitto.baseTopic}/''${selectedDevice}`;
                     renderMessage(data, topic);
                     
                     console.log('Device icon:', deviceIcons[selectedDevice]);
@@ -1594,7 +1597,7 @@ EOF
                         connectToMQTT();
                         setTimeout(() => {
                             if (window.mqttClient && window.mqttClient.connected) {
-                                window.mqttClient.publish(`zigbee2mqtt/device_command/''${deviceId}`, JSON.stringify(command));
+                                window.mqttClient.publish(`${config.house.zigbee.mosquitto.baseTopic}/device_command/''${deviceId}`, JSON.stringify(command));
                             } else {
                                 showNotification('Still not connected to MQTT', 'error');
                             }
@@ -1602,7 +1605,7 @@ EOF
                         return;
                     }
 
-                    const topic = `zigbee2mqtt/device_command/''${deviceId}`;
+                    const topic = `${config.house.zigbee.mosquitto.baseTopic}/device_command/''${deviceId}`;
                     client.publish(topic, JSON.stringify(command), function(err) {
                         if (err) {
                             showNotification('Failed to send command', 'error');
@@ -1623,7 +1626,7 @@ EOF
                     //    connectToMQTT();
                     //    setTimeout(() => {
                     //        if (window.mqttClient && window.mqttClient.connected) {
-                    //            window.mqttClient.publish(`zigbee2mqtt/''${device}/set`, JSON.stringify(command));
+                    //            window.mqttClient.publish(`${config.house.zigbee.mosquitto.baseTopic}/''${device}/set`, JSON.stringify(command));
                     //        } else {
                     //            showNotification('Still not connected to MQTT', 'error');
                    //         }
@@ -1631,7 +1634,7 @@ EOF
                    //     return;
                    // }
     
-                   // const topic = `zigbee2mqtt/''${device}/set`;
+                   // const topic = `${config.house.zigbee.mosquitto.baseTopic}/''${device}/set`;
                    // client.publish(topic, JSON.stringify(command), function(err) {
                    //     if (err) {
                    //         showNotification('Failed to send command', 'error');
@@ -2359,7 +2362,7 @@ EOF
                         document.querySelectorAll('.scene-item').forEach(scene => {
                             scene.addEventListener('click', () => {
                                 const sceneName = scene.getAttribute('data-scene');
-                                const topic = `zigbee2mqtt/scene/''${sceneName}`;
+                                const topic = `${config.house.zigbee.mosquitto.baseTopic}/scene/''${sceneName}`;
                                 const message = "{}";
                                 client.publish(topic, message);
                                 console.log(`Publishing to ''${topic}`);

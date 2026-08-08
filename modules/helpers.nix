@@ -7,7 +7,7 @@
 
   zigbeeDevices = config.house.zigbee.devices;
   scenes = config.house.zigbee.scenes;
-
+  baseTopic = config.house.zigbee.mosquitto.baseTopic or "zigbee2mqtt";
 
   deviceMeta = builtins.toJSON (
     lib.listToAttrs (
@@ -33,12 +33,12 @@
   deviceList = builtins.attrNames normalizedDeviceMap;
 
   makeCommand = device: settings:
-    let
-      json = builtins.toJSON settings;
-    in
-      ''
-      yo mqtt_pub --topic "zigbee2mqtt/${device}/set" .-message '${json}'
-      '';
+      let
+        json = builtins.toJSON settings;
+      in
+        ''
+        yo mqtt_pub --topic "${baseTopic}/${device}/set" .-message '${json}'
+        '';
 
   sceneCommands = lib.mapAttrs
     (sceneName: sceneDevices:
@@ -281,6 +281,7 @@ in {
           (pkgs.writeScriptBin "zig" ''
             ${cmdHelpers}
             set -euo pipefail
+            BASE_TOPIC="${config.house.zigbee.mosquitto.baseTopic}"
             # 🦆 says ⮞ create case insensitive map of device friendly_name
             declare -A device_map=(
               ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "['${lib.toLower k}']='${v}'") normalizedDeviceMap)}

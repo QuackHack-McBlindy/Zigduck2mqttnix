@@ -177,6 +177,31 @@ let
   };
   dashboardConfigFile = pkgs.writeText "dashboard-config.json" dashboardConfigJSON;
 
+  
+  statusCardsConfigJson = pkgs.writeText "status-cards-config.json" (builtins.toJSON {
+    cards = lib.mapAttrs (name: card: {
+      inherit name;
+      title = card.title;
+      group = card.group or "default";
+      icon = card.icon;
+      color = card.color;
+      theme = card.theme or "neon";
+      fileName = builtins.baseNameOf card.filePath;
+      jsonField = card.jsonField;
+      format = card.format;
+      detailsJsonField = card.detailsJsonField or null;
+      detailsFormat = card.detailsFormat or "";
+      details = card.details or "";
+      defaultDetails = card.defaultDetails or "";
+      defaultValue = card.defaultValue or "--";
+      chart = card.chart or false;
+      historyField = card.historyField or "history";
+      on_click_action = card.on_click_action or [];
+    }) (lib.filterAttrs (_: card: card.enable) config.house.dashboard.statusCards);
+    enabled = builtins.attrNames (lib.filterAttrs (_: card: card.enable) config.house.dashboard.statusCards);
+  });
+
+
   # 🦆 needz 4 rust  
   devices-json = pkgs.writeText "devices.json" deviceMeta;
   jsonFormat = pkgs.formats.json { };
@@ -186,6 +211,7 @@ let
       broker = house.zigbee.mosquitto.host;
       user = house.zigbee.mosquitto.username;
       password_file = house.zigbee.mosquitto.passwordFile; 
+      base_topic = house.zigbee.mosquitto.baseTopic;
     };
     hue = {
       bridge_ip = house.zigbee.hueSyncBox.bridge.ip;
@@ -391,7 +417,7 @@ in {
             server = "mqtt://localhost:1883";
             user = config.house.zigbee.mosquitto.username;
             password = config.house.zigbee.mosquitto.passwordFile;
-            base_topic = "zigbee2mqtt";
+            base_topic = config.house.zigbee.mosquitto.baseTopic;
           };
           serial = {
             port = "/dev/" + config.house.zigbee.coordinator.symlink;
@@ -625,6 +651,7 @@ in {
       environment.etc."zigduck/scenes.json".source = sceneConfig;
       environment.etc."zigduck/scenesCLI.json".source = sceneConfigCli;
       environment.etc."zigduck/dashboard.json".source = dashboardConfigFile;
+      environment.etc."zigduck/status-cards-config.json".source = statusCardsConfigJson;
       #environment.etc."zigduck/api.json".source = apiConfigFile;
 
       users.users.zigduck = {
