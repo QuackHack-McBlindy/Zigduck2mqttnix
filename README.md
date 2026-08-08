@@ -291,7 +291,7 @@ Define a dimmer, or motion sensor it'those devices would default to control that
 
 
 <details><summary><strong>
- Automations (optional)
+🤖 Automations (optional)
 </strong></summary>
 
 **Example configuraiton:**  
