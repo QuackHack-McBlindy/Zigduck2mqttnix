@@ -77,6 +77,7 @@ Use `Zigduck2mqttnix`:
       self.inputs.zigduck2mqttnix.packages.x86_64-linux.zigduck-rs
       self.inputs.zigduck2mqttnix.packages.x86_64-linux.zigduck-cli
       self.inputs.zigduck2mqttnix.packages.x86_64-linux.zigduck-api
+      self.inputs.zigduck2mqttnix.packages.x86_64-linux.tv      
     ];
     services.zigduck = {
       enable = true;
@@ -599,6 +600,11 @@ Dashboard (optional)
 
 
 </details>
+
+
+<br>
+
+## **Usage**
 
 <details><summary><strong>
 Commandline 
