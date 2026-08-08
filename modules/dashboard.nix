@@ -458,7 +458,7 @@ let
 
 
     # 🦆 says ⮞ symlink all status card JSON files
-    ln -sf /etc/zigduck/status-cards-config.json.json $WORKDIR/   
+    ln -sf /etc/zigduck/status-cards-config.json $WORKDIR/   
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: card: 
       if card.enable then "ln -sf ${card.filePath} $WORKDIR/${builtins.baseNameOf card.filePath};" else ""
     ) config.house.dashboard.statusCards)}

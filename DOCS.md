@@ -5,13 +5,15 @@ High performance Rust home automation system that uses your Nix defined devices 
 
   
   
-## **Project currently includes three binaries:**
+## **Project currently includes four binaries:**
   
 1. `zigduck-rs` - The server-side automation service.
 
 2. `zigduck-cli` - The client-side CLI controller.
 
 3. `zigduck-api` - The server-side API backend.  
+
+4. `tv` - CLI tool for casting media to Android tvOS.    
 
   
 ## **NixOS modules**

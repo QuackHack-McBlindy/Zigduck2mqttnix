@@ -188,13 +188,38 @@ Define a dimmer, or motion sensor it'those devices would default to control that
           room = "kitchen"; # bind to group
           type = "dimmer"; # device type
           endpoint = 1; # zigbee endpoint
+          icon = "mdi:toggle-switch";
           batteryType = "CR2450"; # optional
         }; 
         "0x0017880402750848a" = { 
           friendly_name = "Spotlight kök 1";
           room = "kitchen";
           type = "light";
+          icon = "mdi:spotlight";
           endpoint = 11;
+        };
+        "0x54ef4410003e58e2" = { 
+          friendly_name = "Roller Shade";
+          room = "livingroom";
+          type = "blind";
+          icon = "mdi:blinds";
+          endpoint = 1;
+        };
+        
+        "0x00178801021311c4" = { 
+          friendly_name = "Motion Sensor Hall";
+          room = "hallway";
+          type = "motion";
+          icon = "mdi:motion-sensor"; 
+          endpoint = 1; 
+          batteryType = "AAA";
+        };
+        "0x00158d00053ec9b1" = {
+          friendly_name = "Door Sensor Hall";
+          room = "hallway";
+          type = "sensor";
+          icon = "mdi:door";
+          endpoint = 1;
         };
       };
     };  
@@ -514,7 +539,7 @@ Dashboard (optional)
             {
               type = "shell";
               command = ''
-                # Read the MQTT payload, extract the "temperature" field,
+                # read the MQTT payload, extract the "temperature" field,
                 # and write it to /var/lib/zigduck/temperature.json with a history array.
                 VALUE=$(echo "$MQTT_PAYLOAD" | jq '.temperature')
                 FILE="/var/lib/zigduck/temperature.json"
