@@ -216,7 +216,6 @@ in {
           kitchen.icon = "mdi:sofa";
           livingroom.icon = "mdi:toilet";
           wc.icon = "mdi:toilet";
-          other.icon = "mdi:misc";
         };
         description = "A set of rooms in the house with their attributes.";
       };
@@ -292,7 +291,6 @@ in {
       
       zigbee = {      
         enable = lib.mkEnableOption "zigbee2mqtt service";
-        #package = lib.mkPackageOption pkgs "zigbee2mqtt" { };
         dataDir = lib.mkOption {
           description = "Zigbee2mqtt data directory";
           default = "/var/lib/zigbee";
@@ -327,10 +325,12 @@ in {
             Copy your existing one from your Zigbee2mqtt configuraiton.yaml file.
             Having this key saved avoids user having to repair his/her devices.
             Example content:
-              - 86
-              - 208
-              ...
-              ...
+            ```
+            - 86
+            - 208
+            ...
+            ...
+            ```
           '';
         };
       };

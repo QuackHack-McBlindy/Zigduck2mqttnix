@@ -196,9 +196,18 @@ struct Cli {
 
     #[arg(long, num_args = 0..=1, default_missing_value = "true", help = "Control all lights (optional true/false)")]
     all_lights: Option<String>,
+    
+    #[arg(long, help = "Control all blinds globally (up or down)")]
+    blinds: Option<String>,
 
     #[arg(long, help = "Room name for cheap mode")]
     cheap_mode: Option<String>,
+
+    #[arg(long, requires = "topic", help = "Publish a raw MQTT message")]
+    publish: bool,
+    
+    #[arg(long, help = "MQTT topic (used with --publish)")]
+    topic: Option<String>,
 
     #[arg(long, help = "Send raw JSON to a device")]
     json_cmd: bool,
@@ -218,7 +227,7 @@ struct Cli {
     #[arg(long, requires = "device", help = "Transition time in seconds")]
     transition: Option<f32>,
 
-    #[arg(long, requires = "json_cmd", help = "Raw JSON payload")]
+    #[arg(long, help = "Raw JSON payload (used with --json-cmd or --publish)")]
     payload: Option<String>,
 
     #[arg(long, value_enum, default_value = "auto", requires = "json_cmd", help = "Backend type (auto/zigbee/hue)")]
@@ -452,6 +461,39 @@ impl ZigduckController {
 	    
 	    Ok(scenes)
 	}
+	
+    fn publish_message(&mut self, topic: &str, payload: &str) -> Result<()> {
+        let json: serde_json::Value = serde_json::from_str(payload)
+            .unwrap_or_else(|_| serde_json::Value::String(payload.to_string()));
+        self.publish_mqtt(topic, json)
+    }
+	
+    fn control_blinds(&mut self, direction: &str) -> Result<()> {
+        let position = match direction.to_lowercase().as_str() {
+            "up" | "open"   => 100,
+            "down" | "close" => 0,
+            _ => anyhow::bail!("Direction must be 'up' or 'down'"),
+        };
+
+        let blind_names: Vec<String> = self.devices.values()
+            .filter(|d| d.device_type == "blind")
+            .map(|d| d.friendly_name.clone())
+            .collect();
+
+        if blind_names.is_empty() {
+            println!("🦆 No blinds configured.");
+            return Ok(());
+        }
+
+        println!("🪟 Controlling {} blinds: {}…", blind_names.len(), direction);
+        for name in &blind_names {
+            let topic = format!("{}/{}/set", self.base_topic, name);
+            let payload = serde_json::json!({ "position": position });
+            self.publish_mqtt(&topic, payload)?;
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        Ok(())
+    }
 	
 	fn color_name_to_hue_sat(&self, color_name: &str) -> Result<(u16, u8)> {
 	    let mut rng = rand::thread_rng();
@@ -1423,6 +1465,7 @@ fn fetch_and_print_status_table(
 
 
 
+
 fn main() -> Result<()> {
     let debug = std::env::var("DEBUG").is_ok();
     if debug { std::env::set_var("DT_LOG_LEVEL", "DEBUG"); }
@@ -1481,9 +1524,7 @@ fn main() -> Result<()> {
         cfg.api.as_ref()
             .and_then(|a| a.url.clone())
             .unwrap_or_else(|| "http://192.168.1.211:13335".to_string())
-    } else {
-        "http://192.168.1.211:13335".to_string()
-    };
+    } else { "http://192.168.1.211:13335".to_string() };
 
     let api_password = if let Some(pw) = cli.api_password.clone() {
         pw
@@ -1523,9 +1564,7 @@ fn main() -> Result<()> {
 
     let hue_api_key = if let Some(key_file) = cli.hue_key_file {
         Some(fs::read_to_string(key_file)?.trim().to_string())
-    } else {
-        cli.hue_api_key.or_else(|| std::env::var("HUE_API_KEY").ok())
-    };
+    } else { cli.hue_api_key.or_else(|| std::env::var("HUE_API_KEY").ok()) };
 
     if cli.status {
         fetch_and_print_status_table(
@@ -1675,7 +1714,15 @@ fn main() -> Result<()> {
         let state = parse_state(state_str, &mut brightness, &mut color)?;
         controller.control_all_lights(&state, brightness, color)
     } else if let Some(room_name) = cli.cheap_mode {
-        controller.cheap_mode(&room_name, cli.delay)
+        controller.cheap_mode(&room_name, cli.delay)        
+    } else if let Some(direction) = cli.blinds {
+        controller.control_blinds(&direction)?;
+        return Ok(());
+    } else if cli.publish {
+        let topic = cli.topic.as_deref().context("--topic required for --publish")?;
+        let payload = cli.payload.as_deref().context("--payload required for --publish")?;
+        controller.publish_message(topic, payload)?;
+        return Ok(());
     } else if cli.json_cmd {
         let device_name = cli.device.context("--device is required for JSON command")?;
         let payload = cli.payload.context("--payload is required for JSON command")?;

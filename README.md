@@ -305,11 +305,11 @@ Automations
           enable = true;
           awayDuration = 7200;
           delay = 10;
-          actions = [
+          actions = [ 
             {
               type = "shell";
               command = ''
-                tts "greeting message" 
+                my tts command here for example
               '';
             }
           ];
@@ -363,46 +363,50 @@ Automations
         room_actions = {
           hallway = { 
             # sinple string can be used as "shell" automation action
-            door_opened = ["curl http://192.168.1.15/api/settings/speaker/play/ding";];
+            door_opened = [ "curl http://192.168.1.15/api/settings/speaker/play/ding" ];
             door_closed = [];
           };
           
           kitchen = { 
             motion_not_detected = [
               {
-                type = "mqtt";
-                topic = "zigduck/topic/subtopic";
-                message = "my mqtt message";
+                type = "shell";
+                command = ''
+                  power=$(jq -r '."Fläkt".power' /var/lib/zigduck/state.json)
+                  # if kitchen fan is consuming energy turn it off in 2 minutes
+                  if (( power > 20 )); then
+                    zigduck-cli --publish --topic "zigduck/Fläkt/set" --payload '{"countdown": 120}'
+                  fi
+                '';
               }
-              {
-                type = "scene";
-                scene = "kitchenFadeOff";
-              }
+              # slowly turn off kitchen lights
+              { type = "scene"; scene = "kitchenFadeOff"; }
             ];  
 
             motion_detected = [
-              { 
-                type = "scene";
-                scene = "kitchenInstant";
+              # instant lights
+              { type = "scene"; scene = "kitchenInstant"; }            
+              {
+                type = "shell";
+                command = ''
+                  # cancel any pending countdown
+                  zigduck-cli --publish --topic "zigduck/Fläkt/set" --payload '{"countdown": 0}'
+                  # if fan is off - start it
+                  STATE=$(jq -r '."Fläkt".state' /var/lib/zigduck/state.json)
+                  if [ "$STATE" = "OFF" ]; then               
+                    zigduck-cli --device "Fläkt" --state on
+                  fi
+                '';
               }
             ];
           };
         };
+     
           
         # 3. global actions automations  
         global_actions = {
-          leak_detected = [
-            {
-              type = "shell";
-              command = "yo notify '🚨 WATER LEAK DETECTED!'";
-            }
-          ];
-          smoke_detected = [
-            {
-              type = "shell";
-              command = "yo notify '🔥 SMOKE DETECTED!'";
-            }
-          ];
+          leak_detected = [ "yo notify '🚨 WATER LEAK DETECTED!'" ];
+          smoke_detected = [ "yo notify '🔥 SMOKE DETECTED!'" ];
         };
 
         # 4. [optional] dimmer actions automations (default configured per room)
@@ -648,8 +652,14 @@ Options:
           Pairing duration in seconds (default: 120)
       --all-lights [<ALL_LIGHTS>]
           Control all lights (optional true/false)
+      --blinds <BLINDS>
+          Control all blinds globally (up or down)
       --cheap-mode <CHEAP_MODE>
           Room name for cheap mode
+      --publish
+          Publish a raw MQTT message
+      --topic <TOPIC>
+          MQTT topic (used with --publish)
       --json-cmd
           Send raw JSON to a device
       --state <STATE>
@@ -663,7 +673,7 @@ Options:
       --transition <TRANSITION>
           Transition time in seconds
       --payload <PAYLOAD>
-          Raw JSON payload
+          Raw JSON payload (used with --json-cmd or --publish)
       --backend <BACKEND>
           Backend type (auto/zigbee/hue) [default: auto] [possible values: auto, zigbee, hue]
       --json-output
