@@ -9,58 +9,9 @@
   format = pkgs.formats.yaml { };
   configFile = format.generate "zigbee2mqtt.yaml" config.house.zigbee.settings;
 
-  defaultPaths = root: {
-    tv = root + "/TV";
-    movies = root + "/Movies";
-    music = root + "/Music";
-    musicVideos = root + "/Music_Videos";
-    otherVideos = root + "/Other_Videos";
-    podcasts = root + "/Podcasts";
-    audiobooks = root + "/Audiobooks";
-  };
-
   zigbeeDevices = config.house.zigbee.devices;
  
   scenes = config.house.zigbee.scenes;
-      
-  allTVs = builtins.attrValues config.house.tv;
-  defaultIP = if allTVs == [] then "127.0.0.1" else (builtins.head allTVs).ip;
-  directories = {
-    root        = config.house.media.root;
-    tv          = config.house.media.tv;
-    movie       = config.house.media.movies;
-    music       = config.house.media.music;
-    podcast     = config.house.media.podcasts;
-    musicvideo  = config.house.media.musicVideos;
-    othervideo  = config.house.media.otherVideos;
-    audiobook   = config.house.media.audiobooks;
-  };
-
-  rooms = builtins.listToAttrs (
-    lib.mapAttrsToList (name: value: { inherit name; value = value.ip; }) config.house.tv
-  );
-
-  tvDefaultsAttrSet = {
-    device_ip   = defaultIP;
-    inherit rooms;
-    inherit directories;
-    webserver_file = if config.house.https.urlFile != null
-                             then config.house.https.urlFile
-                             else null;    
-    playlist_file  = config.house.media.root + "/playlist.m3u";
-    max_items      = 200;
-    shuffle        = true;
-    youtube_api_key_file = if config.house.media.youtubePasswordFile != null
-                             then config.house.media.youtubePasswordFile
-                             else null;
-    mqtt_password_file   = if config.house.zigbee.mosquitto != null
-                             then config.house.zigbee.mosquitto.passwordFile
-                             else null;
-  };
-
-  tvDefaultsJsonFile = pkgs.writeText "tv-ctl-defaults.json"
-    (builtins.toJSON tvDefaultsAttrSet);
-
 
   jsonFormat = pkgs.formats.json { };
 
@@ -193,11 +144,6 @@ in {
           });
           default = {};
           description = "Custom pages for the dashboard";
-        };
-
-        # TODO remove?   
-        betaCard = {
-          enable = (mkEnableOption "the beta card") // { default = false; };
         };
         
         statusCards = lib.mkOption {
@@ -359,7 +305,7 @@ in {
               default = "zigbee2mqtt";
               description = "MQTT base topic used by Zigbee2mqtt and the zigduck runtime.";
             };
-            # 🦆 says ⮞ SSL/TLS options for secure MQTT connections
+
             ssl = {
               enable = mkEnableOption "Enable SSL/TLS for MQTT connection";    
               caCertFile = mkOption {
@@ -1089,10 +1035,4 @@ in {
         };
       };
   
-
-    config = lib.mkMerge [            
-      {
-          environment.etc."zigduck/tv-defaults.json".source = tvDefaultsJsonFile;
-      }
-
-    ];}
+    }

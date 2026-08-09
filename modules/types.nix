@@ -14,7 +14,6 @@
   }; 
 
 
-  # automation action types
   automationActionType = types.oneOf [
     (types.str)
     (types.submodule {
@@ -53,7 +52,7 @@
     })
   ];
 
-  # dimmer action configuration
+
   dimmerActionType = types.submodule {
     options = {
       enable = mkEnableOption "Enable this dimmer action";
@@ -74,7 +73,7 @@
     };
   };
 
-  # dashboard
+
   statusCardType = with lib.types; submodule {
     options = {
       enable = mkEnableOption "this status card";
@@ -92,18 +91,18 @@
         example = "sensors";
         description = "Status cards are ordered by it's group name";
       };        
-      # for custom cards
+
       source = mkOption {
         type = enum [ "file" ];
         default = "file";
       };      
-      # file source options
+
       filePath = mkOption { 
         type = str; 
         default = ""; 
         description = "Path to JSON file for file source";
       };    
-      # main value configuration
+
       jsonField = mkOption { 
         type = str; 
         default = ""; 
@@ -114,7 +113,7 @@
         default = null;
         description = "JSON field to extract from file for details (optional)";
       };   
-      # display configuration
+
       format = mkOption { 
         type = str; 
         default = "{value}"; 
@@ -136,7 +135,7 @@
         description = "JSON field to extract history data from for the chart";
       };
 
-      # automate clickable actions
+
       on_click_action = mkOption { 
         type = lib.types.listOf automationActionType;
         default = [];

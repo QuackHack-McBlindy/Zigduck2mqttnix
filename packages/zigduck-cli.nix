@@ -32,8 +32,6 @@ rustPlatform.buildRustPackage {
     pkgs.zigbee2mqtt
   ];
 
-  # 🦆 says ⮞ required for some crates that use cmake
-#  env.CMAKE_POLICY_VERSION_MINIMUM = "3.5";
 
   meta = with lib; {
     description = "Home automation system written in Rust";

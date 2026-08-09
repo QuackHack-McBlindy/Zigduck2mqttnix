@@ -58,9 +58,6 @@ struct HueConfig {
 
 
 
-
-
-
 #[derive(Subcommand, Debug)]
 enum Commands {
     #[command(name = "timer")]
@@ -485,7 +482,7 @@ impl ZigduckController {
             return Ok(());
         }
 
-        println!("🪟 Controlling {} blinds: {}…", blind_names.len(), direction);
+        println!("Controlling {} blinds: {}…", blind_names.len(), direction);
         for name in &blind_names {
             let topic = format!("{}/{}/set", self.base_topic, name);
             let payload = serde_json::json!({ "position": position });
@@ -534,15 +531,11 @@ impl ZigduckController {
 	    
 	    let g = if g > 0.04045 {
 	        ((g + 0.055) / 1.055).powf(2.4)
-	    } else {
-	        g / 12.92
-	    };
+	    } else { g / 12.92 };
 	    
 	    let b = if b > 0.04045 {
 	        ((b + 0.055) / 1.055).powf(2.4)
-	    } else {
-	        b / 12.92
-	    };
+	    } else { b / 12.92 };
 	    
 	    let x = r * 0.649926 + g * 0.103455 + b * 0.197109;
 	    let y = r * 0.234327 + g * 0.743075 + b * 0.022598;
@@ -551,9 +544,7 @@ impl ZigduckController {
 	    let sum = x + y + z;
 	    if sum == 0.0 {
 	        Ok((0.5, 0.4))
-	    } else {
-	        Ok((x / sum, y / sum))
-	    }
+	    } else { Ok((x / sum, y / sum)) }
 	}
 	
 fn color_name_to_hex(&self, color_name: &str) -> Result<String> {
@@ -885,7 +876,7 @@ fn activate_scene(&mut self, scene_name: &str, random: bool, room_filter: Option
         .get(&scene_to_activate)
         .context(format!("Scene not found: {}", scene_to_activate))?;
 
-    // 🦆 says ⮞ filter devices by room if requested
+
     let devices: Vec<(String, serde_json::Value)> = scene.devices
         .iter()
         .filter(|(device_name, _)| {
@@ -957,14 +948,14 @@ fn activate_scene(&mut self, scene_name: &str, random: bool, room_filter: Option
 fn convert_to_hue_payload(&self, settings: &serde_json::Value) -> Result<serde_json::Value> {
 let mut payload = serde_json::Map::new();
 
-// 🦆 says ⮞ handle on/off state
+
 if let Some(state) = settings.get("state").and_then(|s| s.as_str()) {
 payload.insert("on".to_string(), serde_json::Value::Bool(state == "ON"));
 } else {
 payload.insert("on".to_string(), serde_json::Value::Bool(true));
 }
 
-// 🦆 says ⮞ handle brightness
+
 if let Some(brightness) = settings.get("brightness") {
 if let Some(bri) = brightness.as_u64() {
    let hue_bri = (bri as f32).min(254.0) as u8;
@@ -979,7 +970,7 @@ if let Some(bri) = brightness.as_u64() {
 }
 }
 
-// 🦆 says ⮞ handle color with XY coordinates (this is the fix!)
+
 if let Some(color_obj) = settings.get("color") {
 if let Some(xy_array) = color_obj.get("xy") {
    if let Some(xy) = xy_array.as_array() {
@@ -990,16 +981,15 @@ if let Some(xy_array) = color_obj.get("xy") {
 }
 }
 
-// 🦆 says ⮞ Handle color temperature (if present)
+
 if let Some(temp) = settings.get("color_temp") {
 if let Some(ct) = temp.as_u64() {
-   // 🦆 says ⮞ convert to Hue's CT range (153-500)
    let hue_ct = if ct > 500 { 500 } else if ct < 153 { 153 } else { ct as u16 };
    payload.insert("ct".to_string(), serde_json::Value::Number(hue_ct.into()));
 }
 }
 
-// 🦆 says ⮞ handle transition time
+
 if let Some(transition) = settings.get("transition") {
 if let Some(t) = transition.as_f64() {
    let trans_time = (t * 10.0).round() as u16;
@@ -1474,7 +1464,6 @@ fn main() -> Result<()> {
 
 	let mut cli = Cli::parse();
 	
-    // 🦆 says ⮞ load default config from /etc/zigduck/config.json
     let default_config_path = PathBuf::from("/etc/zigduck/config.json");
     let config: Option<CliConfig> = if default_config_path.exists() {
         match fs::read_to_string(&default_config_path) {
@@ -1483,7 +1472,6 @@ fn main() -> Result<()> {
         }
     } else { None };
 
-    // 🦆 says ⮞ fill missing values from config file
     if let Some(cfg) = &config {
         if cli.broker == "127.0.0.1" && !std::env::var("MQTT_BROKER").is_ok() {
             if let Some(mosq) = &cfg.mosquitto {
@@ -1666,9 +1654,7 @@ fn main() -> Result<()> {
     }
 
 
-    // 🦆 says ⮞ determine which action was requested
     if let Some(device_name) = cli.device {
-        // 🦆 says ⮞ device action
         let state_str = cli.state.as_deref().context("--state is required for device")?;
         let mut brightness = cli.brightness;
         let mut color = cli.color;

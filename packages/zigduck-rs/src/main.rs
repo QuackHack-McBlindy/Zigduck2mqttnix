@@ -63,9 +63,9 @@ struct DimmerActions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DarkTimeConfig {
     enabled: bool,
-    after: u32,    // 🦆 says ⮞ hour (0-23)
-    before: u32,   // 🦆 says ⮞ hour (0-23)
-    duration: u64, // 🦆 says ⮞ seconds
+    after: u32,
+    before: u32,
+    duration: u64,
 }
 
 
@@ -148,7 +148,7 @@ struct TimeBasedAutomation {
     actions: Vec<AutomationAction>,
 }
 
-// 🦆 says ⮞ Dashboard card configuration
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DashboardCardConfig {
     enable: bool,
@@ -183,7 +183,7 @@ struct PresenceBasedAutomation {
     motion_restored_actions: Vec<AutomationAction>,
 }
 
-// 🦆 says ⮞ MQTT triggered automations
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MqttTriggeredAutomation {
     enable: bool,
@@ -201,7 +201,7 @@ struct TimeRangeSchedule {
     days: Vec<String>,
 }
 
-// #[derive(Debug)]
+
 struct ZigduckState {
     hue_client: Option<HueClient>,
     mqtt_broker: String,
@@ -260,7 +260,7 @@ impl Clone for ZigduckState {
     }
 }
 
-// 🦆 says ⮞ automation types
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AutomationConfig {
     dimmer_actions: HashMap<String, RoomDimmerActions>,
@@ -272,7 +272,7 @@ struct AutomationConfig {
     greeting: Option<GreetingAutomation>,
 }
 
-// 🦆 says ⮞ room specific dimmer actions
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RoomDimmerActions {
     on_press_release: Option<DimmerAction>,

@@ -7,24 +7,21 @@
 } : with lib;
 let
   cfg = config.services.zigduck;
+  
   house = config.house;
   zigduckDir = cfg.stateDir;
   zigduckPkgs = self.inputs.zigduck2mqttnix.packages.${pkgs.system};  
 
   imports = [ ./dashboard.nix ];
 
-  # 🦆 says ⮞ define Zigbee devices here yo 
   zigbeeDevices = config.house.zigbee.devices;
   
-  # 🦆 says ⮞ case-insensitive device matching
   normalizedDeviceMap = lib.mapAttrs' (id: device:
     lib.nameValuePair (lib.toLower device.friendly_name) device.friendly_name
   ) zigbeeDevices;
 
-  # 🦆 says ⮞ device validation list
   deviceList = builtins.attrNames normalizedDeviceMap;
 
-  # 🦆 says ⮞ Create reverse mapping from friendly_name to device ID
   friendlyNameToId = builtins.listToAttrs (
     lib.flatten (
       lib.mapAttrsToList (id: device: [
@@ -36,7 +33,6 @@ let
     )
   );
 
-  # 🦆 says ⮞ scene simplifier? or not
   sceneLight = {state, brightness ? 200, hex ? null, temp ? null}:
     let
       colorValue = if hex != null then { inherit hex; } else null;
@@ -46,12 +42,12 @@ let
     } // (if colorValue != null then { color = colorValue; } else {})
       // (if temp != null then { color_temp = temp; } else {});
 
-  # 🎨 Scenes  🦆 YELLS ⮞ SCENES!!!!!!!!!!!!!!!11
-  scenes = config.house.zigbee.scenes; # 🦆 says ⮞ Declare light states, quack dat's a scene yo!   
+
+  scenes = config.house.zigbee.scenes;
   sceneConfig = pkgs.writeText "scene-config.json" (builtins.toJSON {
     scenes = scenes;
   });
-  # 🎨 Scenes for CLI
+
   sceneConfigCli = pkgs.writeText "scene-config-cli.json" (builtins.toJSON (
     lib.mapAttrs (sceneName: sceneDevices: {
       friendly_name = sceneName;
@@ -59,19 +55,15 @@ let
     }) scenes
   ));
   
-  # 🦆 says ⮞ Generate scene commands    
   makeCommand = deviceName: settings:
     let
-      # 🦆 says ⮞ Try to find device ID by friendly name
       deviceId = friendlyNameToId.${deviceName} or null;
       dev = if deviceId != null then zigbeeDevices.${deviceId} else null;
       json = builtins.toJSON settings;
       hue_id = if dev != null && dev.hue_id != null then toString dev.hue_id else "unknown";
-      # 🦆 says ⮞ Use device's friendly name for MQTT topic
       mqttName = if dev != null then dev.friendly_name else deviceName;
     in
       if dev == null then
-        # 🦆 says ⮞ Device not found - output error but continue
         ''echo "🦆 Warning: Device '${deviceName}' not found in zigbeeDevices"''
       else if dev.type == "hue_light" then
         ''yo house --device "${mqttName}" --json "${json}"''
@@ -84,19 +76,17 @@ let
       lib.mapAttrs (device: settings: makeCommand device settings) sceneDevices
     ) scenes;  
 
-  # 🦆 says ⮞ Filter devices by rooms
   byRoom = lib.foldlAttrs (acc: id: dev:
     lib.recursiveUpdate acc {
       ${dev.room} = (acc.${dev.room} or []) ++ [ id ];
     }) {} zigbeeDevices;
 
-  # 🦆 says ⮞ Filter by device type
   byType = lib.foldlAttrs (acc: id: dev:
     lib.recursiveUpdate acc {
       ${dev.type} = (acc.${dev.type} or []) ++ [ id ];
     }) {} zigbeeDevices;
 
-  # 🦆 says ⮞ dis creates group configuration for Z2M yo
+
   groupConfig = lib.mapAttrs' (room: ids: {
     name = room;
     value = {
@@ -110,17 +100,14 @@ let
 
   format = pkgs.formats.yaml { };
   configFile = format.generate "zigbee2mqtt.yaml" config.house.zigbee.settings;
-
-  # 🦆 says ⮞ gen json from `config.house.tv`  
+ 
   tvDevicesJson = pkgs.writeText "tv-devices.json" (builtins.toJSON config.house.tv);
 
-  # 🦆 says ⮞ IEEE not very human readable - lets fix dat yo
   ieeeToFriendly = lib.mapAttrs (ieee: dev: dev.friendly_name) zigbeeDevices;
   mappingJSON = builtins.toJSON ieeeToFriendly;
   mappingFile = pkgs.writeText "ieee-to-friendly.json" mappingJSON;
 
 
-  # 🦆 says ⮞ Service expects 'id' field (friendly_name), CLI expects 'friendly_name' field
   deviceMeta = builtins.toJSON (
     lib.listToAttrs (
       lib.filter (attr: attr.name != null) (
@@ -148,23 +135,18 @@ let
   
 
 
-  # 🦆 says ⮞ dis creates device configuration for Z2M yo
   deviceConfig = 
     let
-      # 🦆 says ⮞ Z2M does not need hue lights
       filteredDevices = lib.filterAttrs (_: dev: dev.type != "hue_light") zigbeeDevices;
     in
-    # 🦆 says ⮞ create map for Z2M
     lib.mapAttrs (id: dev: {
       friendly_name = dev.friendly_name;
     }) filteredDevices;
 
 
-  # 🦆 says ⮞ Generate automations configuration
   automationsJSON = builtins.toJSON config.house.zigbee.automations;
   automationsFile = pkgs.writeText "automations.json" automationsJSON;
 
-  # 🦆 says ⮞ Generate dashboard configuration
   dashboardConfig = lib.filterAttrs (_: card: card.enable) config.house.dashboard.statusCards;
   dashboardConfigJSON = builtins.toJSON {
       cards = lib.mapAttrs (name: card: {
@@ -202,7 +184,6 @@ let
   });
 
 
-  # 🦆 needz 4 rust  
   devices-json = pkgs.writeText "devices.json" deviceMeta;
   jsonFormat = pkgs.formats.json { };
 
@@ -244,6 +225,45 @@ let
   };
 
   zigduckConfigFile = jsonFormat.generate "config.json" mainConfig;
+
+  allTVs = builtins.attrValues config.house.tv;
+  defaultIP = if allTVs == [] then "127.0.0.1" else (builtins.head allTVs).ip;
+  directories = {
+    root        = config.house.media.root;
+    tv          = config.house.media.tv;
+    movie       = config.house.media.movies;
+    music       = config.house.media.music;
+    podcast     = config.house.media.podcasts;
+    musicvideo  = config.house.media.musicVideos;
+    othervideo  = config.house.media.otherVideos;
+    audiobook   = config.house.media.audiobooks;
+  };
+
+  rooms = builtins.listToAttrs (
+    lib.mapAttrsToList (name: value: { inherit name; value = value.ip; }) config.house.tv
+  );
+
+  tvDefaultsAttrSet = {
+    device_ip   = defaultIP;
+    inherit rooms;
+    inherit directories;
+    webserver_file = if config.house.https.urlFile != null
+                             then config.house.https.urlFile
+                             else null;    
+    playlist_file  = config.house.media.root + "/playlist.m3u";
+    max_items      = 200;
+    shuffle        = true;
+    youtube_api_key_file = if config.house.media.youtubePasswordFile != null
+                             then config.house.media.youtubePasswordFile
+                             else null;
+    mqtt_password_file   = if config.house.zigbee.mosquitto != null
+                             then config.house.zigbee.mosquitto.passwordFile
+                             else null;
+  };
+
+  tvDefaultsJsonFile = pkgs.writeText "tv-ctl-defaults.json"
+    (builtins.toJSON tvDefaultsAttrSet);
+
 
 in {
 
@@ -410,7 +430,7 @@ in {
     
       house.zigbee = {
         enable = true;
-        dataDir = lib.mkForce "/var/lib/zigbee";
+        dataDir = "/var/lib/zigbee";
         settings = {
           homeassistant = lib.mkDefault false;
           mqtt = {
@@ -630,7 +650,6 @@ in {
        "L+ ${cfg.stateDir}/devices.json - - - - /etc/zigduck/devices.json"
        "L+ ${cfg.stateDir}/scenes.json - - - - /etc/zigduck/scenes.json"
        "L+ ${cfg.stateDir}/automations.json - - - - /etc/zigduck/automations.json"
-       #"L+ ${cfg.stateDir}/api.json - - - - /etc/zigduck/api.json"
         "d ${cfg.stateDir}/.config/duckTrace 0750 zigduck zigduck - -"
         "d ${cfg.stateDir}/intent_data 0750 zigduck zigduck - -"
       ];
@@ -652,7 +671,7 @@ in {
       environment.etc."zigduck/scenesCLI.json".source = sceneConfigCli;
       environment.etc."zigduck/dashboard.json".source = dashboardConfigFile;
       environment.etc."zigduck/status-cards-config.json".source = statusCardsConfigJson;
-      #environment.etc."zigduck/api.json".source = apiConfigFile;
+      environment.etc."zigduck/tv-defaults.json".source = tvDefaultsJsonFile;
 
       users.users.zigduck = {
         isSystemUser = true;
@@ -663,7 +682,7 @@ in {
       users.users.zigbee2mqtt = {
         isSystemUser = true;
         group = "zigbee2mqtt";
-        home = "/var/lib/zigbee";
+        home = config.house.zigbee.dataDir;
         createHome = true;
       }; 
 

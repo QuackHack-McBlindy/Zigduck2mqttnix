@@ -1,5 +1,8 @@
-{ config, lib, ... }:
-let
+{ 
+  config,
+  lib,
+  ...
+} : let
   inherit (lib)
     filterAttrs mapAttrsToList mapAttrs' nameValuePair flatten
     optional attrNames concatStringsSep take length unique
@@ -50,14 +53,17 @@ let
           assertion = deviceExistsByFriendlyName deviceName;
           message = "🦆 duck say ⮞ fuck ❌ Scene '${sceneName}' references non-existent device '${deviceName}'. Available: ${concatStringsSep ", " (take 10 availableNames)}${if length availableNames > 10 then "..." else ""}";
         }
+        
         {
           assertion = settings ? state -> isValidState settings.state;
           message = "🦆 duck say ⮞ fuck ❌ Scene '${sceneName}' device '${deviceName}' has invalid state '${settings.state}' (must be ON or OFF)";
         }
+        
         {
           assertion = settings ? brightness -> isValidBrightness settings.brightness;
           message = "🦆 duck say ⮞ fuck ❌ Scene '${sceneName}' device '${deviceName}' has invalid brightness ${toString settings.brightness} (must be 0-254)";
         }
+        
         {
           assertion = settings ? color -> (
             (settings.color ? hex && isValidHexColor settings.color.hex) ||
@@ -67,6 +73,7 @@ let
           );
           message = "🦆 duck say ⮞ fuck ❌ Scene '${sceneName}' device '${deviceName}' has invalid color format (must have hex, xy, hue/sat, or ct)";
         }
+        
       ]
     ) sceneDevices);
 
@@ -76,11 +83,12 @@ let
         assertion = roomExists device.room;
         message = "🦆 duck say ⮞ fuck ❌ Device '${device.friendly_name}' (${deviceId}) assigned to non-existent room '${device.room}'";
       }
-      # state validation is a dummy; keep if needed
+
       {
         assertion = isValidState "ON";
         message = "🦆 duck say ⮞ fuck ❌ Device '${device.friendly_name}' state validation failed";
       }
+      
     ];
 
   validateMotionSensors = automationName: sensors:
@@ -133,11 +141,13 @@ let
         (config.house.zigbee.mosquitto.username != null) == (config.house.zigbee.mosquitto.passwordFile != null);
       message = "🦆 duck say ⮞ fuck ❌ MQTT authentication requires both username and passwordFile to be set together";
     }
+    
     {
       assertion = config.house.zigbee.mosquitto != null && config.house.zigbee.mosquitto.ssl.enable ->
         (config.house.zigbee.mosquitto.ssl.clientCertFile != null) == (config.house.zigbee.mosquitto.ssl.clientKeyFile != null);
       message = "🦆 duck say ⮞ fuck ❌ MQTT SSL client authentication requires both clientCertFile and clientKeyFile";
     }
+    
   ];
 
   syncBoxTvValidation = {
@@ -162,4 +172,5 @@ in
     ++ mqttValidations
     ++ mqttTriggeredValidations
     ++ [ syncBoxTvValidation ];
+    
 }

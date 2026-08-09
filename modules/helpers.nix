@@ -5,123 +5,10 @@
   ...
 } : let
 
-  zigbeeDevices = config.house.zigbee.devices;
-  scenes = config.house.zigbee.scenes;
-  baseTopic = config.house.zigbee.mosquitto.baseTopic or "zigbee2mqtt";
-
-  deviceMeta = builtins.toJSON (
-    lib.listToAttrs (
-      lib.filter (attr: attr.name != null) (
-        lib.mapAttrsToList (_: dev: {
-          name = dev.friendly_name;
-          value = {
-            room = dev.room;
-            type = dev.type;
-            id = dev.friendly_name;
-            endpoint = dev.endpoint;
-          };
-        }) zigbeeDevices
-      )
-    )
-  );
-
-
-  normalizedDeviceMap = lib.mapAttrs' (id: device:
-    lib.nameValuePair (lib.toLower device.friendly_name) device.friendly_name
-  ) zigbeeDevices;
-
-  deviceList = builtins.attrNames normalizedDeviceMap;
-
-  makeCommand = device: settings:
-      let
-        json = builtins.toJSON settings;
-      in
-        ''
-        yo mqtt_pub --topic "${baseTopic}/${device}/set" .-message '${json}'
-        '';
-
-  sceneCommands = lib.mapAttrs
-    (sceneName: sceneDevices:
-      lib.mapAttrs (device: settings: makeCommand device settings) sceneDevices
-    ) scenes;  
-
-
-  colorToHex = color:
-    if color ? hex then color.hex
-    else if color ? xy then
-      let
-        x = lib.elemAt color.xy 0;
-        y = lib.elemAt color.xy 1;
-        # xy > rgb approx (for sRGB gamut)
-        r = lib.clamp 0 255 (lib.toInt ((3.2406 * x - 1.5372 * y - 0.4986 * (1 - x - y)) * 255));
-        g = lib.clamp 0 255 (lib.toInt ((-0.9689 * x + 1.8758 * y + 0.0415 * (1 - x - y)) * 255));
-        b = lib.clamp 0 255 (lib.toInt ((0.0557 * x - 0.2040 * y + 1.0570 * (1 - x - y)) * 255));
-      in
-      "#" + 
-      (lib.fixedWidthString 2 "0" (lib.toHexString r)) +
-      (lib.fixedWidthString 2 "0" (lib.toHexString g)) +
-      (lib.fixedWidthString 2 "0" (lib.toHexString b))
-    else if color ? hue && color ? saturation then
-      let
-        # convert hue (0-65535) and sat (0-254) to degrees/%
-        hue_deg = (color.hue * 360) / 65535;
-        sat_pct = color.saturation / 254.0;
-        # hsv > rgb conversion
-        c = sat_pct;
-        h_prime = hue_deg / 60.0;
-        x = c * (1 - lib.abs((builtins.mod h_prime 2) - 1));
-        m = 1 - c;
-      
-        # rgb based on hue sector
-        rgb1 = 
-          if h_prime < 1 then [c x 0]
-          else if h_prime < 2 then [x c 0]
-          else if h_prime < 3 then [0 c x]
-          else if h_prime < 4 then [0 x c]
-          else if h_prime < 5 then [x 0 c]
-          else [c 0 x];
-      
-        r1 = lib.elemAt rgb1 0;
-        g1 = lib.elemAt rgb1 1;
-        b1 = lib.elemAt rgb1 2;
-      
-        r = lib.clamp 0 255 (lib.toInt ((r1 + m) * 255));
-        g = lib.clamp 0 255 (lib.toInt ((g1 + m) * 255));
-        b = lib.clamp 0 255 (lib.toInt ((b1 + m) * 255));
-      in
-      "#" + 
-      (lib.fixedWidthString 2 "0" (lib.toHexString r)) +
-      (lib.fixedWidthString 2 "0" (lib.toHexString g)) +
-      (lib.fixedWidthString 2 "0" (lib.toHexString b))
-    else "#ffffff";
-
-  sceneLight = {state, brightness ? null, hex ? null, temp ? null, hue ? null, sat ? null, xy ? null, ct ? null, effect ? "none", alert ? "none", transition ? null}:
-    let
-      colorValue = if hex != null then { inherit hex; } 
-        else if xy != null then { inherit xy; }
-        else if hue != null && sat != null then { inherit hue sat; }
-        else if ct != null then { inherit ct; }
-        else if temp != null then { ct = temp; }
-        else null;
-    in
-    {
-      inherit state;
-    } // (if brightness != null then { inherit brightness; } else {})
-      // (if colorValue != null then { color = colorValue; } else {})
-      // (if effect != null && effect != "none" then { inherit effect; } else {})
-      // (if alert != null && alert != "none" then { inherit alert; } else {})
-      // (if transition != null then { inherit transition; } else {});
-
-
-
   cmdHelpers = ''
     say_duck() {
       echo -e "\e[3m\e[38;2;0;150;150m🦆 duck say \e[1m\e[38;2;255;255;0m⮞\e[0m\e[3m\e[38;2;0;150;150m $1\e[0m"
     }  
-
-    mqtt_pub() {
-      ${pkgs.mosquitto}/bin/mosquitto_pub -h "$MQTT_BROKER" -u "$MQTT_USER" -P "$MQTT_PASSWORD" "$@"
-    }
 
     color2hex() {
       local color="$1"
@@ -234,145 +121,11 @@
 in {
   config = {
     environment.systemPackages = [
-          (pkgs.writeScriptBin "scene-roll" ''
-            ${cmdHelpers}
-            ${lib.concatStringsSep "\n" (lib.flatten (lib.mapAttrsToList (_: cmds: lib.mapAttrsToList (_: cmd: cmd) cmds) sceneCommands))}
-          '')
-          
-
-          (pkgs.writeScriptBin "scene" ''
-            ${cmdHelpers}
-            MQTT_BROKER="${config.house.zigbee.mosquitto.host}"
-            MQTT_USER="${config.house.zigbee.mosquitto.username}"
-            MQTT_PASSWORD=$(cat "${config.house.zigbee.mosquitto.passwordFile}") # ⮜ 🦆 says password file
-            SCENE="$1"      
-            # 🦆 says ⮞ convert to lowercase
-            SCENE_LOWER=$(echo "$SCENE" | tr '[:upper:]' '[:lower:]')
-      
-            # 🦆 says ⮞ no scene == random scene
-            if [ -z "$SCENE" ]; then
-              SCENE=$(shuf -n 1 -e ${lib.concatStringsSep " " (lib.map (name: "\"${name}\"") (lib.attrNames sceneCommands))})
-              SCENE_LOWER=$(echo "$SCENE" | tr '[:upper:]' '[:lower:]')
-            fi
-      
-            # 🦆 says ⮞ create lowercase scene names
-            case "$SCENE_LOWER" in
-            ${
-              lib.concatStringsSep "\n" (
-                lib.mapAttrsToList (sceneName: cmds:
-                  let
-                    commandLines = lib.concatStringsSep "\n    " (
-                      lib.mapAttrsToList (_: cmd: cmd) cmds
-                    );
-                    lowercaseName = lib.toLower sceneName;
-                  in
-                    "\"${lowercaseName}\")\n    ${commandLines}\n    ;;"
-                ) sceneCommands
-              )
-            }
-            *)
-              say_duck "fuck ❌"
-              exit 1
-              ;;
-            esac
-          '')  
-          
-
-          (pkgs.writeScriptBin "zig" ''
-            ${cmdHelpers}
-            set -euo pipefail
-            BASE_TOPIC="${config.house.zigbee.mosquitto.baseTopic}"
-            # 🦆 says ⮞ create case insensitive map of device friendly_name
-            declare -A device_map=(
-              ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "['${lib.toLower k}']='${v}'") normalizedDeviceMap)}
-            )
-            available_devices=(
-              ${toString deviceList}
-            )    
-            DEVICE="$1" # 🦆 says ⮞ device to control      
-            STATE="''${2:-}" # 🦆 says ⮞ state change        
-            BRIGHTNESS="''${3:-100}"
-            COLOR="''${4:-}"
-            TEMP="''${5:-}"
-            ZIGBEE_DEVICES='${deviceMeta}'
-            MQTT_BROKER="${config.house.zigbee.mosquitto.host}"
-
-            MQTT_USER="${config.house.zigbee.mosquitto.username}"
-            MQTT_PASSWORD=$(cat "${config.house.zigbee.mosquitto.passwordFile}") # ⮜ 🦆 says password file
-            # 🦆 says ⮞ Zigbee coordinator backup
-            if [[ "$DEVICE" == "backup" ]]; then
-              mqtt_pub -t "zigbee2mqtt/backup/request" -m '{"action":"backup"}'
-              say_duck "Zigbee coordinator backup requested! - processing on server..."
-              exit 0
-            fi         
-            # 🦆 says ⮞ validate device
-            input_lower=$(echo "$DEVICE" | tr '[:upper:]' '[:lower:]')
-            exact_name=''${device_map["$input_lower"]}
-            if [[ -z "$exact_name" ]]; then
-              say_duck "fuck ❌ device not found: $DEVICE" >&2
-              say_duck "Available devices: ${toString (builtins.attrNames zigbeeDevices)}" >&2
-              exit 1
-            fi
-            # 🦆 says ⮞ if COLOR da lamp prob want hex yo
-            if [[ -n "$COLOR" ]]; then
-              COLOR=$(color2hex "$COLOR") || {
-                say_duck "fuck ❌ Invalid color: $COLOR" >&2
-                exit 1
-              }
-            fi
-            # 🦆 says ⮞ turn off the device
-            if [[ "$STATE" == "off" ]]; then
-              mqtt_pub -t "zigbee2mqtt/$exact_name/set" -m '{"state":"OFF"}'
-              say_duck " turned off $DEVICE"
-              exit 0
-            fi    
-            # 🦆 says ⮞ turn down the device brightness
-            if [[ "$STATE" == "down" ]]; then
-              say_duck "🔻 Decreasing $light_id in $clean_room"
-              mqtt_pub -t "zigbee2mqtt/$exact_name/set" -m '{"brightness_step":-50,"transition":3.5}'
-              exit 0
-            fi      
-            # 🦆 says ⮞ turn up the device brightness
-            if [[ "$STATE" == "up" ]]; then
-              say_duck "🔺 Increasing brightness on $light_id in $clean_room"
-              mqtt_pub -t "zigbee2mqtt/$exact_name/set" -m '{"brightness_step":50,"transition":3.5}'
-              exit 0
-            fi      
-                        
-            # 🦆 says ⮞ construct payload
-            PAYLOAD="{\"state\":\"ON\""
-            [[ -n "$BRIGHTNESS" ]] && PAYLOAD+=", \"brightness\":$BRIGHTNESS"
-            [[ -n "$COLOR" ]] && PAYLOAD+=", \"color\":{\"hex\":\"$COLOR\"}"
-            PAYLOAD+="}"
-            # 🦆 says ⮞ publish payload
-            mqtt_pub -t "zigbee2mqtt/$exact_name/set" -m "$PAYLOAD"
-            say_duck "$PAYLOAD" 
-     
-     
-     
-            # 🦆TODO⮞ BRIDGED PAYLOAD 
-            PAYLOAD="{\"state\":\"true\""
-            [[ -n "$BRIGHTNESS" ]] && PAYLOAD+=", \"bri\":$BRIGHTNESS"
-            [[ -n "$COLOR" ]] && PAYLOAD+=", \"color\":{\"hex\":\"$COLOR\"}"
-            PAYLOAD+="}"
-            # 🦆 says ⮞ publish payload
-            mqtt_pub -t "zigbee2mqtt/$exact_name/set" -m "$PAYLOAD"
-            say_duck "$PAYLOAD" 
-            
-               
-     
-     
-     
-            
-            
-          '')
-          
 
           ( pkgs.writeScriptBin "hue" ''
             ${cmdHelpers}
             # set -euo pipefail
           
-            # 🦆 says ⮞ configuration loaded at build time
             if [ "${if config.house.zigbee.hueSyncBox != null && config.house.zigbee.hueSyncBox.enable then "1" else "0"}" = "1" ]; then
               HUE_BRIDGE_IP="${config.house.zigbee.hueSyncBox.bridge.ip}"
               HUE_BRIDGE_API_KEY="$(cat "${config.house.zigbee.hueSyncBox.bridge.passwordFile}" 2>/dev/null || echo "")"
@@ -381,13 +134,11 @@ in {
               HUE_INSECURE="${toString config.house.zigbee.hueSyncBox.insecure}"
               HUE_SKIP_CERT_CHECK="${toString config.house.zigbee.hueSyncBox.skipCertCheck}"
               
-              # 🦆 says ⮞ build-time device mapping (keyed by friendly_name)
               HUE_DEVICE_MAP='${builtins.toJSON (
                 let
                   zigbeeConfig = config.house.zigbee;
-                  # 🦆 says ⮞ get all devices with hue_id
                   hueDevices = lib.attrsets.filterAttrs (name: device: device.hue_id != null) zigbeeConfig.devices;
-                  # 🦆 says ⮞ create mapping from friendly_name to hue_id
+
                   hueDeviceMapping = builtins.listToAttrs (
                     builtins.filter (x: x != null) (
                       builtins.map (device:
@@ -413,7 +164,6 @@ in {
               )}'
               
               
-              # 🦆 says ⮞ Nix scenes
               HUE_NIX_SCENES='${builtins.toJSON config.house.zigbee.scenes}'
             else
               HUE_BRIDGE_IP=""
@@ -426,7 +176,6 @@ in {
               HUE_NIX_SCENES='{}'
             fi
           
-            # 🦆 says ⮞ fetch hue states and update global state.json
             update_state_file() {
               STATE_FILE="/var/lib/zigduck/state.json"
               HUE_JSON="$(hue bridge lights)"
@@ -464,12 +213,10 @@ in {
               mv "''${STATE_FILE}.tmp" "$STATE_FILE" 
             }
 
-            # 🦆 says ⮞ helpers
             load_device_map() {
               echo "$HUE_DEVICE_MAP" | ${pkgs.jq}/bin/jq '.'
             }
             
-          
             load_nix_scenes() {
               echo "$HUE_NIX_SCENES" | ${pkgs.jq}/bin/jq '.'
             }
@@ -554,7 +301,7 @@ in {
               fi
             }
           
-            # 🦆 says ⮞ ACTIVATE NIX SCENE ON HUE DEVICES
+
             apply_nix_scene() {
               local scene_name="$1"
               local nix_scenes
@@ -589,7 +336,6 @@ in {
                 local device_state
                 device_state=$(echo "$scene_def" | ${pkgs.jq}/bin/jq -c --arg name "$friendly_name" '.[$name]')
                 
-                # 🦆says⮞ STATE BUILD
                 local state
                 state=$(echo "$device_state" | ${pkgs.jq}/bin/jq -r '.state // "ON"')
                 
@@ -597,12 +343,10 @@ in {
                 if [ "$state" = "ON" ]; then
                   update_json="''${update_json}true"
   
-                  # 🦆says⮞ brightness
                   if [ "$brightness" != "null" ] && [ "$brightness" != "" ]; then
                     update_json="''${update_json}, \"bri\":$brightness"
                   fi
   
-                  # 🦆says⮞  color (supports all Hue formats)
                   local xy_json hue_val sat_val ct_val
                   xy_json=$(echo "$device_state" | ${pkgs.jq}/bin/jq -r '.color.xy')
                   hue_val=$(echo "$device_state" | ${pkgs.jq}/bin/jq -r '.color.hue')
@@ -610,16 +354,12 @@ in {
                   ct_val=$(echo "$device_state" | ${pkgs.jq}/bin/jq -r '.color.ct // .color.temp')
   
                   if [ "$xy_json" != "null" ] && [ "$xy_json" != "" ]; then
-                    # 🦆says⮞  xy color
                     update_json="''${update_json}, \"xy\":$xy_json"
                   elif [ "$hue_val" != "null" ] && [ "$sat_val" != "null" ] && [ "$hue_val" != "" ] && [ "$sat_val" != "" ]; then
-                    # 🦆says⮞  hue/sat
                     update_json="''${update_json}, \"hue\":$hue_val, \"sat\":$sat_val"
                   elif [ "$ct_val" != "null" ] && [ "$ct_val" != "" ]; then
-                    # 🦆says⮞ color temp
                     update_json="''${update_json}, \"ct\":$ct_val"
                   else
-                    # 🦆says⮞ fallback2hex
                     hex_value=$(echo "$device_state" | ${pkgs.jq}/bin/jq -r '.color.hex // .color')
                     if [ "$hex_value" != "null" ] && [ "$hex_value" != "" ]; then
                       local xy_coords
@@ -635,14 +375,12 @@ in {
                     fi
                   fi
   
-                  # 🦆says⮞ effect
                   local effect_val
                   effect_val=$(echo "$device_state" | ${pkgs.jq}/bin/jq -r '.effect')
                   if [ "$effect_val" != "null" ] && [ "$effect_val" != "" ] && [ "$effect_val" != "none" ]; then
                     update_json="''${update_json}, \"effect\":\"$effect_val\""
                   fi
   
-                  # 🦆says⮞ alert
                   local alert_val
                   alert_val=$(echo "$device_state" | ${pkgs.jq}/bin/jq -r '.alert')
                   if [ "$alert_val" != "null" ] && [ "$alert_val" != "" ] && [ "$alert_val" != "none" ]; then
@@ -662,7 +400,6 @@ in {
                   say_duck "fuck  ❌ Failed to update $friendly_name"
                 fi
                 
-                # 🦆says⮞tiny delay - safety first!
                 sleep 0.1
               done <<< "$device_names"
               
@@ -670,9 +407,7 @@ in {
               update_state_file
             }
           
-            # 🦆 says ⮞ routing
             case "$1" in
-              # 🦆 says ⮞ bridge
               bridge)
                 case "$2" in
                   devices|list)
@@ -706,7 +441,6 @@ in {
                     action="$4"
                     value="''${5:-}"
                     
-                    # 🦆 says ⮞ get hue_id from friendly_name
                     hue_id=$(get_hue_id "$friendly_name")
                     if [ -z "$hue_id" ] || [ "$hue_id" = "null" ]; then
                       say_duck "fuck ❌ No hue_id found for device: $friendly_name"
@@ -748,7 +482,6 @@ in {
                         say_duck "Set $friendly_name color to $value (xy: $xy_json)"
                         ;;
                       state)
-                        # 🦆 says ⮞ advanced! set multiple properties
                         if [[ -n "$value" ]]; then
                           if echo "$value" | ${pkgs.jq}/bin/jq . >/dev/null 2>&1; then
                             hue_api bridge PUT "/lights/$hue_id/state" "$value"
@@ -777,13 +510,11 @@ in {
                     esac
                     ;;
                   scene)
-                    # 🦆 says ⮞ activate Hue scenes (by id)
                     scene_id="$3"
                     hue_api bridge PUT "/groups/0/action" "{\"scene\":\"$scene_id\"}"
                     say_duck "Activated bridge scene: $scene_id"
                     ;;
                   apply-scene|nix-scene)
-                    # 🦆 says ⮞ Nix configured scenes
                     scene_name="$3"
                     apply_nix_scene "$scene_name"
                     ;;
@@ -845,7 +576,6 @@ in {
                 esac
                 ;;            
               
-              # 🦆 says ⮞ syncBox
               sync)
                 case "$2" in
                   on)
@@ -920,7 +650,6 @@ in {
                 esac
                 ;;
               
-              # 🦆 says ⮞ help
               help|--help|-h)
                 cat <<EOF
           🦆 Philips Hue Control Script
@@ -951,5 +680,4 @@ in {
           '')
     ];
     
-  };}
-         
+  };}       

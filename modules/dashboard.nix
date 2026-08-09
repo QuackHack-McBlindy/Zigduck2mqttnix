@@ -11,8 +11,7 @@ let
   zigduckDir = cfg.stateDir;
   zigduckPkgs = self.inputs.zigduck2mqttnix.packages.${pkgs.system}; 
 
-  #cfg = config.house.services.duckdash;
-  #login = import ./../../modules/dashboard/login.nix { inherit lib pkgs; };
+
   login = builtins.readFile ./../static/html/login.html;
   javascript = builtins.readFile ./../static/js/script.js;
   cards = import ./cards.nix { inherit lib pkgs; };
@@ -30,7 +29,6 @@ let
 
   tvConfig = builtins.trace "TV config: ${builtins.toJSON config.house.tv}" config.house.tv;
 
-  # 🦆 says ⮞ define Zigbee devices here yo 
   zigbeeDevices = config.house.zigbee.devices;
   lightDevices = lib.filterAttrs (_: device: 
     device.type == "light" || device.type == "hue_light"
@@ -40,7 +38,6 @@ let
     device.type == "outlet" || device.type == "pusher"
   ) zigbeeDevices;
 
-  # 🦆 says ⮞ all room devices
   allRoomDevices = lib.filterAttrs (_: device: 
     device.type == "light" || 
     device.type == "hue_light" || 
@@ -48,15 +45,12 @@ let
     device.type == "pusher"
   ) zigbeeDevices;
   
-  # 🦆 says ⮞ case-insensitive device matching
   normalizedDeviceMap = lib.mapAttrs' (id: device:
     lib.nameValuePair (lib.toLower device.friendly_name) device.friendly_name
   ) zigbeeDevices;
 
-  # 🦆 says ⮞ device validation list
   deviceList = builtins.attrNames normalizedDeviceMap;
 
-  # 🦆 says ⮞ scene simplifier? or not
   sceneLight = {state, brightness ? 200, hex ? null, temp ? null}:
     let
       colorValue = if hex != null then { inherit hex; } else null;
@@ -67,7 +61,6 @@ let
       // (if temp != null then { color_temp = temp; } else {});
 
 
-  # 🦆 says ⮞ letz convert the website into an iOS application (Open Safari & Save bookmark to homescreen) 
   iOSmanifest = pkgs.writeText "manifest.json" ''
     {
       "name": "🦆'Dash",
@@ -91,13 +84,13 @@ let
     }
   '';
 
-  # 🎨 Scenes  🦆 YELLS ⮞ SCENES!!!!!!!!!!!!!!!11
-  scenes = config.house.zigbee.scenes; # 🦆 says ⮞ Declare light states, quack dat's a scene yo!   
+
+  scenes = config.house.zigbee.scenes; 
   sceneConfig = pkgs.writeText "scene-config.json" (builtins.toJSON {
     scenes = scenes;
   });
   
-  # 🦆 says ⮞ Generate scene commands    
+
   makeCommand = device: settings:
     let
       json = builtins.toJSON settings;
@@ -111,19 +104,17 @@ let
       lib.mapAttrs (device: settings: makeCommand device settings) sceneDevices
     ) scenes;  
 
-  # 🦆 says ⮞ Filter devices by rooms
   byRoom = lib.foldlAttrs (acc: id: dev:
     lib.recursiveUpdate acc {
       ${dev.room} = (acc.${dev.room} or []) ++ [ id ];
     }) {} zigbeeDevices;
 
-  # 🦆 says ⮞ Filter by device type
+
   byType = lib.foldlAttrs (acc: id: dev:
     lib.recursiveUpdate acc {
       ${dev.type} = (acc.${dev.type} or []) ++ [ id ];
     }) {} zigbeeDevices;
 
-  # 🦆 says ⮞ dis creates group configuration for Z2M yo
   groupConfig = lib.mapAttrs' (room: ids: {
     name = room;
     value = {
@@ -135,42 +126,33 @@ let
     };
   }) byRoom;
 
-  # 🦆 says ⮞ gen json from `config.house.tv`  
   tvDevicesJson = pkgs.writeText "tv-devices.json" (builtins.toJSON config.house.tv);
 
-  # 🦆 says ⮞ dis creates device configuration for Z2M yo
   deviceConfig = lib.mapAttrs (id: dev: {
     friendly_name = dev.friendly_name;
   }) zigbeeDevices;
 
-  # 🦆 says ⮞ IEEE not very human readable - lets fix dat yo
   ieeeToFriendly = lib.mapAttrs (ieee: dev: dev.friendly_name) zigbeeDevices;
   mappingJSON = builtins.toJSON ieeeToFriendly;
   mappingFile = pkgs.writeText "ieee-to-friendly.json" mappingJSON;
 
-  # 🦆 says ⮞ user defined dashboard pages
   pageFilesAndCss = let
     pages = config.house.dashboard.pages;
   in lib.concatStrings (lib.mapAttrsToList (pageId: page: 
     if page.css != "" then "echo '${page.css}' > $WORKDIR/page-${pageId}.css;" else ""
   ) pages);
 
-  # 🦆says⮞ generate html for status cards with grouping and themes
+
   statusCardsHtml = let
-    # 🦆says⮞filter
     enabledCards = lib.filterAttrs (name: card: card.enable) config.house.dashboard.statusCards;    
-    # 🦆says⮞ convert to list & add name
     cardsList = lib.mapAttrsToList (name: card: card // { _name = name; }) enabledCards;
-    # 🦆says⮞ group cards by their group
     groupedCards = lib.groupBy (card: card.group or "default") cardsList;    
     groups = lib.attrNames groupedCards;
     
-    # 🦆says⮞ generate CSS variables for a card
     generateCardStyle = cardName: card:
       let
         themeName = card.theme or "neon";
         theme = statusCardThemes.${themeName} or statusCardThemes.neon;
-        # 🦆says⮞ convert css vars 2 inline
         themeVars = lib.concatStringsSep " " (lib.mapAttrsToList (name: value: 
           "${name}: ${value};"
         ) theme.cssVars);
@@ -181,7 +163,6 @@ let
           ${themeVars}
         "'';
     
-    # 🦆says⮞ generate html single card
     generateCardHtml = card: 
       let 
         name = card._name;
@@ -228,7 +209,6 @@ let
         </div>
         '';
     
-    # 🦆says⮞ generate html for groups
     generateGroupHtml = groupName: cards: 
       let
         cardsHtml = lib.concatMapStrings generateCardHtml cards;
@@ -237,7 +217,6 @@ let
   in
     lib.concatStrings (lib.mapAttrsToList generateGroupHtml groupedCards);
      
-  # 🦆 says ⮞ generate custom tabs HTML  
   customTabsHtml = let
     pages = config.house.dashboard.pages;
   in if pages == {} then "" else lib.concatStrings (lib.mapAttrsToList (id: page: 
@@ -253,18 +232,15 @@ let
   ) pages);
 
 
-  # 🦆 says ⮞ get house.zigbee.scenes
   zigbeeScenes = config.house.zigbee.scenes;
   zigbeeDevicesIcon = lib.mapAttrs' (id: device: {
     name = device.friendly_name;
     value = device.icon;
   }) zigbeeDevices;
 
-  # 🦆 says ⮞ generate scene data
   sceneData = builtins.toJSON zigbeeScenes;
   iconData = builtins.toJSON zigbeeDevicesIcon;
 
-  # 🦆 says ⮞ generate  scene gradients css
   sceneGradientCss = lib.concatStrings (lib.mapAttrsToList (name: scene: 
     let
       deviceStates = lib.mapAttrsToList (_: device: device.state) scene;
@@ -297,7 +273,7 @@ let
       }"
   ) zigbeeScenes);
 
-  # 🦆 says ⮞ generate scene HTML  
+
   sceneGridHtml = lib.concatStrings (lib.mapAttrsToList (name: scene: 
     let
       colors = lib.concatMap (device: 
@@ -357,7 +333,6 @@ let
     </div>
   '';
   
-  # 🦆 says ⮞ get house.rooms
   roomIcons = lib.mapAttrs' (name: room: {
     name = name;
     value = room.icon;
@@ -367,7 +342,6 @@ let
   devicesByRoom = lib.groupBy (device: device.room) devicesWithId;
   sortedRooms = lib.sort (a: b: a < b) (lib.attrNames devicesByRoom);
   
-  # 🦆 says ⮞ generate devices in collapsible rooms
   roomControlsHtml = let
     devicesData = config.house.zigbee.devices;
     
@@ -426,7 +400,7 @@ let
   '';
 
   
-  # 🦆 says ⮞ SERVER CONFIGURATION
+  # SERVER CONFIGURATION
   httpServer = pkgs.writeShellScriptBin "serve-dashboard" ''
     HOST=''${1:-0.0.0.0}
     PORT=''${2:-13337}
@@ -434,14 +408,14 @@ let
     KEY=''${4:-}
     WORKDIR=$(mktemp -d)
 
-    # 🦆 says ⮞ symlink html files & manifest
+    # symlink html files & manifest
     ln -sf /etc/login.html $WORKDIR/ 
     ln -sf /etc/script.js $WORKDIR/     
     ln -sf /etc/index.html $WORKDIR/
     ln -sf /etc/static/tv.html $WORKDIR/
     ln -sf /etc/site.webmanifest $WORKDIR/
             
-    # 🦆 says ⮞ & favicons
+    # & favicons
     ln -sf /etc/favicon-32x32.png $WORKDIR/
     ln -sf /etc/favicon-16x16.png $WORKDIR/
     ln -sf /etc/favicon.ico $WORKDIR/
@@ -449,7 +423,7 @@ let
     ln -sf /etc/android-chrome-512x512.png $WORKDIR/
     ln -sf /etc/android-chrome-192x192.png $WORKDIR/
 
-    # 🦆 says ⮞ symlink json files
+    # symlink json files
     ln -sf /etc/devices.json $WORKDIR/
     ln -sf /etc/rooms.json $WORKDIR/
     ln -sf /etc/tv.json $WORKDIR/
@@ -457,13 +431,13 @@ let
     ln -sf /etc/static/epg.json $WORKDIR/   
 
 
-    # 🦆 says ⮞ symlink all status card JSON files
+    # symlink all status card JSON files
     ln -sf /etc/zigduck/status-cards-config.json $WORKDIR/   
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: card: 
       if card.enable then "ln -sf ${card.filePath} $WORKDIR/${builtins.baseNameOf card.filePath};" else ""
     ) config.house.dashboard.statusCards)}
 
-    # 🦆 says ⮞ process page files from dashboard configuration
+    # process page files from dashboard configuration
     ${lib.concatStringsSep "\n" (lib.flatten (lib.mapAttrsToList (_: page:
       lib.mapAttrsToList (name: source: 
         if lib.isString source then
@@ -473,10 +447,10 @@ let
       ) (page.files or {})
     ) config.house.dashboard.pages))}
 
-    # 🦆 says ⮞ CSS files only (no matter what it says below)
+    # CSS files only
     ${pageFilesAndCss}
 
-    # 🦆 says ⮞ TV icons
+    # TV icons
     mkdir -p $WORKDIR/tv-icons
     ${lib.concatMapStrings (tvName: 
         let tv = tvConfig.${tvName};
@@ -623,7 +597,7 @@ EOF
 
 
 
-  # 🦆 says ⮞ MAIN DASHBOARD INDEX.HTML    
+  # GENERATE DASHBOARD INDEX.HTML    
   indexHtml = ''    
     <!DOCTYPE html>
     <html lang="en">
@@ -1617,36 +1591,7 @@ EOF
                         }
                     });
                 }
-
-
-
-                    //const client = window.mqttClient;
-                    //if (!client || !client.connected) {
-                     //   showNotification('Not connected to MQTT, reconnecting...', 'warning');
-                    //    connectToMQTT();
-                    //    setTimeout(() => {
-                    //        if (window.mqttClient && window.mqttClient.connected) {
-                    //            window.mqttClient.publish(`${config.house.zigbee.mosquitto.baseTopic}/''${device}/set`, JSON.stringify(command));
-                    //        } else {
-                    //            showNotification('Still not connected to MQTT', 'error');
-                   //         }
-                   //     }, 1000);
-                   //     return;
-                   // }
-    
-                   // const topic = `${config.house.zigbee.mosquitto.baseTopic}/''${device}/set`;
-                   // client.publish(topic, JSON.stringify(command), function(err) {
-                   //     if (err) {
-                   //         showNotification('Failed to send command', 'error');
-                   //         console.error('Publish error: ', err);
-                   //     } else {
-                   //         if (window.devices && window.devices[device]) {
-                  //              window.devices[device] = { ...window.devices[device], ...command };
-                 //           }
-                 //       }
-                 //   });
-                //}
-                
+              
                 window.sendCommand = sendCommand;
                 
                 function showPage(pageId) {
@@ -2404,9 +2349,8 @@ EOF
 in {
 
 
-  networking.firewall.allowedTCPPorts = [ 13337 ];
+  networking.firewall.allowedTCPPorts = [ cfg.dashboard.port ];
   
-  # 🦆says⮞ write html to file
   environment.etc."index.html" = {
     text = indexHtml;
     mode = "0644";
@@ -2422,7 +2366,6 @@ in {
     mode = "0644";
   };
   
-  # 🦆says⮞ write json files
   environment.etc."devices.json".source =
     pkgs.writeTextFile {
       name = "devices.json";
@@ -2441,7 +2384,6 @@ in {
       text = builtins.toJSON config.house.tv;
     };
 
-  # 🦆 says ⮞ favicons
   environment.etc."favicon-32x32.png".source = ./../static/icons/favicon-32x32.png;
   environment.etc."favicon-16x16.png".source = ./../static/icons/favicon-16x16.png;
   environment.etc."favicon.ico".source = ./../static/icons/favicon.ico;
@@ -2449,7 +2391,6 @@ in {
   environment.etc."android-chrome-512x512.png".source = ./../static/icons/android-chrome-512x512.png;
   environment.etc."android-chrome-192x192.png".source = ./../static/icons/android-chrome-192x192.png;
 
-  # 🦆 says ⮞ lastly a manifest 4 iOS "app" 
   environment.etc."site.webmanifest".source = iOSmanifest;
 
   systemd.services = lib.mkIf cfg.dashboard.enable {
@@ -2461,9 +2402,7 @@ in {
       serviceConfig = {
         Type = "simple";
         ExecStart = ''${httpServer}/bin/serve-dashboard ${toString cfg.dashboard.host} ${toString cfg.dashboard.port}'';
-        #RuntimeDirectory = "duckdash";
         RuntimeDirectoryMode = "0755";
-        #DynamicUser = true;
         Restart = "on-failure";
         RestartSec = "5s";
         # Hardening
@@ -2471,7 +2410,6 @@ in {
         PrivateTmp = true;
         ProtectSystem = "strict";
         ProtectHome = true;
-        #ReadWritePaths = [ "/run/duckdash" ];
         ReadOnlyPaths = [
           "/etc"
           "/var/lib/zigduck"

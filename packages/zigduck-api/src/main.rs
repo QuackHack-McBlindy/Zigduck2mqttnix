@@ -179,9 +179,7 @@ impl AlarmManager {
             self.save_to_file();
             self.condvar.notify_one();
             Ok(cloned)
-        } else {
-            Err("Alarm not found".into())
-        }
+        } else { Err("Alarm not found".into()) }
     }
 
     fn list(&self) -> Vec<Alarm> {
@@ -201,9 +199,7 @@ impl AlarmManager {
                 let alarm_time = NaiveTime::from_hms_opt(a.hour as u32, a.minute as u32, 0)?;
                 if alarm_time > current_time {
                     Some(alarm_time)
-                } else {
-                    None
-                }
+                } else { None }
             })
             .min()
     }
@@ -394,9 +390,7 @@ impl TimerManager {
             drop(timers);
             self.condvar.notify_one();
             Ok(timer)
-        } else {
-            Err("Timer not found".into())
-        }
+        } else { Err("Timer not found".into()) }
     }
 
     fn list(&self) -> Vec<Timer> {
@@ -421,7 +415,6 @@ fn handle_transcode_video_stream(url: &str, stream: &mut std::net::TcpStream) ->
     let mut stdout = child.stdout.take()
         .ok_or("Failed to capture ffmpeg stdout".to_string())?;
 
-    // 🦆 says ⮞ send http headers
     stream.write_all(b"HTTP/1.1 200 OK\r\n")
         .map_err(|e| format!("Failed to write status line: {}", e))?;
     stream.write_all(b"Content-Type: video/mp4\r\n")
@@ -433,13 +426,11 @@ fn handle_transcode_video_stream(url: &str, stream: &mut std::net::TcpStream) ->
     stream.write_all(b"\r\n")
         .map_err(|e| format!("Failed to write header terminator: {}", e))?;
 
-    // 🦆 says ⮞ stream video data in chunks
     let mut buffer = [0; 8192];
     loop {
         match stdout.read(&mut buffer) {
             Ok(0) => break, // EOF
             Ok(n) => {
-                // 🦆 says ⮞ ciao chunk
                 let chunk_header = format!("{:x}\r\n", n);
                 stream.write_all(chunk_header.as_bytes())
                     .map_err(|e| format!("Failed to write chunk header: {}", e))?;
@@ -455,7 +446,6 @@ fn handle_transcode_video_stream(url: &str, stream: &mut std::net::TcpStream) ->
         }
     }
 
-    // 🦆 says ⮞ send bye-bye goodnight chunk
     stream.write_all(b"0\r\n\r\n")
         .map_err(|e| format!("Failed to write final chunk: {}", e))?;
 
@@ -493,7 +483,6 @@ fn read_webserver_url() -> Result<String, String> {
         .map_err(|e| format!("Cannot read webserver URL: {}", e))
 }
 
-// 🦆 says ⮞ Password authentication function
 fn check_password_auth(headers: &HashMap<String, String>, query: &str) -> bool {
     let password_file_path = match std::env::var("API_PASSWORD_FILE") {
         Ok(path) => path,
@@ -520,11 +509,6 @@ fn check_password_auth(headers: &HashMap<String, String>, query: &str) -> bool {
             return provided_password == expected_password;
         }
     }
-
-    //let query_password = get_query_arg(query, "password");
-    //if !query_password.is_empty() && query_password == expected_password {
-    //    return true;
-    //}
 
     if let Some(api_key) = headers.get("x-api-key") {
         return api_key.trim() == expected_password;
@@ -611,7 +595,7 @@ fn get_path_arg(query: &str) -> String {
     String::new()
 }
 
-// 🦆 says ⮞ read zigduck state.json
+
 fn handle_state_all() -> String {
     let state_file_path = "/var/lib/zigduck/state.json";
     match fs::read_to_string(state_file_path) {
@@ -657,7 +641,6 @@ fn handle_state_room(room: &str) -> String {
             let state_data: Value = serde_json::from_str(&content)
                 .unwrap_or_else(|_| json!({}));
             
-            // 🦆 says ⮞ load devices to filter by room
             let devices_content = fs::read_to_string(devices_file)
                 .unwrap_or_else(|_| "{}".to_string());
             let devices: Map<String, Value> = 
@@ -692,7 +675,6 @@ fn handle_browse(path_arg: &str, use_v2: bool) -> String {
     let media_root = get_root_dir();
     let full_path = format!("{}/{}", media_root, path_arg);
     
-    // 🦆 says ⮞ safety first!
     if !full_path.starts_with(media_root) {
         dt_warning(&format!("Access forbidden for path: {}", path_arg));
         return r#"{"error":"Access forbidden"}"#.to_string();
@@ -707,7 +689,6 @@ fn handle_browse(path_arg: &str, use_v2: bool) -> String {
     let mut files = Vec::new();
 
     if use_v2 {
-        // 🦆 says ⮞ browsev2 with find
         let output = Command::new("find")
             .arg(&full_path)
             .arg("-maxdepth")
@@ -734,7 +715,6 @@ fn handle_browse(path_arg: &str, use_v2: bool) -> String {
             _ => return r#"{"error":"Failed to list directory"}"#.to_string(),
         }
     } else {
-        // 🦆 says ⮞ browse logic with ls
         let output = Command::new("ls")
             .arg("-1")
             .arg(&full_path)
@@ -856,7 +836,6 @@ fn handle_file_upload(headers: &HashMap<String, String>, body: &[u8]) -> String 
             }
             
             if let Some(original_filename) = filename {
-                // 🦆 says ⮞ helper 2 get unique filename
                 fn get_unique_filename(dir: &str, base: &str) -> Result<String, String> {
                     use std::path::Path;               
                     const MAX_ATTEMPTS: usize = 1000;
@@ -947,16 +926,13 @@ fn sanitize_filename(filename: &str) -> String {
             sanitized.push('_');
         }
     }    
-    // 🦆 says ⮞ make sure we have at least something
+
     if sanitized.is_empty() {
         format!("file_{}.bin", chrono::Local::now().format("%Y%m%d_%H%M%S"))
-    } else {
-        sanitized
-    }
+    } else { sanitized }
 }
   
 
-// 🦆 says ⮞ device control endpoints
 fn handle_device_list() -> String {
     match fs::read_to_string("devices.json") {
         Ok(content) => content,
@@ -985,9 +961,7 @@ fn handle_device_rest_control(path: &str) -> String {
             let value = urldecode(segments[i + 1]);
             commands.push((action, value));
             i += 2;
-        } else {
-            return r#"{"error":"Malformed command path"}"#.to_string();
-        }
+        } else { return r#"{"error":"Malformed command path"}"#.to_string(); }
     }
     
     if commands.is_empty() {
@@ -1081,9 +1055,7 @@ fn handle_device_combined_control(device_name: &str, commands: &[(&str, String)]
                     );
                 }
             }
-            _ => {
-                return format!(r#"{{"error":"Unknown action: {}"}}"#, action);
-            }
+            _ => { return format!(r#"{{"error":"Unknown action: {}"}}"#, action); }
         }
     }
 
@@ -1158,7 +1130,6 @@ fn handle_scene_activate(scene_name: &str) -> String {
             .find(|k| k.to_lowercase() == normalized)
             .cloned()
             .unwrap_or_else(|| scene_name.to_string());
-        //match run_yo_command(&["house", "--scene", &actual_name]) { 
         match Command::new("zigduck-cli")
             .arg("--scene")
             .arg(&actual_name)
@@ -1199,12 +1170,10 @@ fn handle_health_check() -> String {
     match Command::new("health").output() {
         Ok(output) if output.status.success() => {
             let health_output = String::from_utf8_lossy(&output.stdout);
-            // 🦆 says ⮞ health script already returns JSON, so we can use it directly
             health_output.to_string()
         }
         Ok(output) => {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            // 🦆 says ⮞ fallback if health command fails
             let timestamp = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string();
             format!(
                 r#"{{"status":"degraded","service":"zigduck-api","timestamp":"{}","error":"Health check failed: {}"}}"#,
@@ -1212,7 +1181,6 @@ fn handle_health_check() -> String {
             )
         }
         Err(e) => {
-            // 🦆 says ⮞ fallback if health command not found
             let timestamp = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string();
             format!(
                 r#"{{"status":"degraded","service":"zigduck-api","timestamp":"{}","error":"Health command failed: {}"}}"#,
@@ -1493,12 +1461,12 @@ fn handle_request(mut stream: TcpStream) {
     let mut reader = BufReader::new(&stream);
     let mut request_line = String::new();
     
-    // 🦆 says ⮞ read request line
+
     if reader.read_line(&mut request_line).is_err() || request_line.is_empty() {
         log("No data on stdin; exiting");
         return;
     }
-    // 🦆 says ⮞ log requester ip
+
     dt_info(&format!("[{}] Request: {}", peer_addr, request_line.trim()));
     
     log(&format!("Request: {}", request_line.trim()));
@@ -1511,7 +1479,7 @@ fn handle_request(mut stream: TcpStream) {
     let method = parts[0];
     let raw_path = parts[1];
 
-    // 🦆 says ⮞ read headers
+
     let mut content_length = 0;
     let mut headers = HashMap::new();
     let mut header_line = String::new();
@@ -1536,7 +1504,7 @@ fn handle_request(mut stream: TcpStream) {
         }
     }
 
-    // 🦆 says ⮞ read body if present
+
     let mut body = Vec::new();
     if content_length > 0 {
         let mut body_buf = vec![0; content_length];
@@ -1546,13 +1514,13 @@ fn handle_request(mut stream: TcpStream) {
         }
     }
 
-    // 🦆 says ⮞ parse path and query
+
     let (path_no_query, query) = match raw_path.split_once('?') {
         Some((path, query)) => (path, query),
         None => (raw_path, ""),
     };
 
-    // 🦆 says ⮞ exclude authentication for health
+
     if path_no_query != "/health" && path_no_query != "/health/all" && !check_password_auth(&headers, query) {
         send_response(&mut stream, "401 Unauthorized", 
             r#"{"error":"Authentication required","message":"Valid password required in Authorization: Bearer <password> header, X-API-Key header, or ?password= query parameter"}"#, 
@@ -1560,9 +1528,8 @@ fn handle_request(mut stream: TcpStream) {
         return;
     }
 
-    // 🦆 says ⮞ route the request
+
     match (method, path_no_query) {
-        // 🦆 says ⮞ handle CORS preflight
         ("OPTIONS", _) => {
             dt_debug("CORS preflight request");
             send_response(&mut stream, "200 OK", "", None);
@@ -1865,7 +1832,6 @@ fn handle_request(mut stream: TcpStream) {
                     send_response(&mut stream, "200 OK", &response, Some("application/json"));
                 }
                 _ => {
-                    // 🦆 says ⮞ assume it's a device name
                     let device_name = parts.join("/");
                     let decoded_device = urldecode(&device_name);
                     dt_info(&format!("Device state request: {}", decoded_device));
@@ -1890,7 +1856,6 @@ fn handle_request(mut stream: TcpStream) {
             };
 
             if rest == "list" || rest == "rooms" || rest == "types" {
-                // let existing handlers handle 'em
             } else {
                 dt_info(&format!("Device control: {}", rest));
                 let response = handle_device_rest_control(rest);
@@ -1908,7 +1873,6 @@ fn handle_request(mut stream: TcpStream) {
                 path
             };
 
-            // 🦆 says ⮞ replace + with spaces
             let decoded_scene_name = scene_name.replace('+', " ");
             dt_info(&format!("Scene activation: {}", decoded_scene_name));
             
@@ -2019,7 +1983,6 @@ fn handle_request(mut stream: TcpStream) {
 
             match run_yo_command(&["do", "--input", &natural_language]) {
                 Ok(output) => {
-                    // 🦆 says ⮞ filter out memory & duckTrace logs
                     let filtered_output: String = output
                         .lines()
                         .filter(|line| !line.contains("MEMORY ADJUSTMENT:"))
@@ -2027,7 +1990,6 @@ fn handle_request(mut stream: TcpStream) {
                         .collect::<Vec<&str>>()
                         .join("\n");        
 
-                    // 🦆 says ⮞ replace "⮞" (U+2B9E) with "▶" (U+25B6) for iOS
                     let cleaned_output = filtered_output
                         .replace('⮞', "▶")
                         .replace('"', "\\\"")
@@ -2082,7 +2044,6 @@ fn main() {
     start_timer_thread(TIMER_MANAGER.clone());
     start_alarm_thread(ALARM_MANAGER.clone());
 
-    // 🦆 says ⮞ port in use?
     if TcpListener::bind(&address).is_err() {
         dt_error(&format!("❌ Port {} is already in use", port));
         std::process::exit(1);
@@ -2129,7 +2090,7 @@ fn main() {
     log("      /device/PC/temperature/300              - Set color temperature");
     log("      /device/PC/state/on/brightness/200      - Combined commands");
     log("  POST /upload                     - Upload files");
-    log("🔐 Authentication:");
+    log("Authentication:");
     log("  All endpoints except /health and /health/all require password authentication");
     log("  Use: Authorization: Bearer <password> header");
     log("  Or:  X-API-Key: <password> header");
@@ -2145,12 +2106,8 @@ fn main() {
                 });
             }
             Err(e) => {
-                dt_warning(&format!("🔌 Connection failed: {}", e));
+                dt_warning(&format!("Connection failed: {}", e));
             }
         }
     }
 }
-
-
-
-

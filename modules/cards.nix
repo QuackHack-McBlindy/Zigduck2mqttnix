@@ -1,5 +1,4 @@
-# dotfiles/modules/dashboard/cards.nix.nix ⮞ https://github.com/quackhack-mcblindy/dotfiles
-{ # 🦆 says ⮞ auto generate smart home dashboard
+{
   lib, 
   pkgs,
   ...

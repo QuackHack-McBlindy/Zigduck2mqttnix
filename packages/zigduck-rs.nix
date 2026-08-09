@@ -1,6 +1,5 @@
-# ddotfiles/packages/zigduck-rs.nix ⮞ https://github.com/QuackHack-McBlindy/dotfiles
-{ # 🦆 says ⮞ home automation system service
-  self,# 🦆 ⮞ + CLI device controller
+{
+  self,
   lib,
   pkgs,
   rustPlatform,
@@ -14,13 +13,9 @@ rustPlatform.buildRustPackage {
   version = "0.1.1";
 
   src = ./zigduck-rs;
-
-  cargoLock = {
-    lockFile = ./zigduck-rs/Cargo.lock;
-  };
+  cargoLock = { lockFile = src + "/Cargo.lock"; };
 
   env.CMAKE_POLICY_VERSION_MINIMUM = "3.5";
-
 
   nativeBuildInputs = [
     pkgs.pkg-config
@@ -34,9 +29,6 @@ rustPlatform.buildRustPackage {
     pkgs.mosquitto
     pkgs.zigbee2mqtt
   ];
-
-  # 🦆 says ⮞ required for some crates that use cmake
-#  env.CMAKE_POLICY_VERSION_MINIMUM = "3.5";
 
   meta = with lib; {
     description = "Home automation system written in Rust";
