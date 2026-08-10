@@ -495,23 +495,36 @@ impl ZigduckState {
         }
     }
 
+    
     async fn check_time_range(&self, start: &Option<String>, end: &Option<String>, days: &[String]) -> bool {
         let now = Local::now();
         let current_day = now.format("%a").to_string().to_lowercase();
+    
         if !days.iter().any(|day| day == &current_day) {
             return false;
         }
-
+    
+        if end.is_none() {
+            if let Some(start_str) = start {
+                if let Ok(start_time) = chrono::NaiveTime::parse_from_str(start_str, "%H:%M") {
+                    let current_time = now.time();
+                    return current_time.hour() == start_time.hour()
+                        && current_time.minute() == start_time.minute();
+                }
+            }
+            return false;
+        }
+    
         if let (Some(start_str), Some(end_str)) = (start, end) {
             if let (Ok(start_time), Ok(end_time)) = (
                 chrono::NaiveTime::parse_from_str(start_str, "%H:%M"),
-                chrono::NaiveTime::parse_from_str(end_str, "%H:%M")
+                chrono::NaiveTime::parse_from_str(end_str, "%H:%M"),
             ) {
                 let current_time = now.time();
                 return current_time >= start_time && current_time <= end_time;
             }
         }
-
+    
         if let Some(start_str) = start {
             if let Ok(start_time) = chrono::NaiveTime::parse_from_str(start_str, "%H:%M") {
                 if now.time() < start_time {
@@ -519,7 +532,6 @@ impl ZigduckState {
                 }
             }
         }
-
         if let Some(end_str) = end {
             if let Ok(end_time) = chrono::NaiveTime::parse_from_str(end_str, "%H:%M") {
                 if now.time() > end_time {

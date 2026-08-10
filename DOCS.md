@@ -5,15 +5,13 @@ High performance Rust home automation system that uses your Nix defined devices 
 
   
   
-## **Project currently includes four binaries:**
+## **Project currently includes three binaries:**
   
 1. `zigduck-rs` - The server-side automation service.
 
 2. `zigduck-cli` - The client-side CLI controller.
 
 3. `zigduck-api` - The server-side API backend.  
-
-4. `tv` - CLI tool for casting media to Android tvOS.    
 
   
 ## **NixOS modules**
@@ -106,7 +104,7 @@ Let the qwackin' begin!
 ## Action Types Supported
 
 All automations can execute actions.  
-There are **four** different types of actions that can be executed.  
+There are **five** different types of actions that can be executed.  
 
 **1. Shell Commands**
 
@@ -136,7 +134,16 @@ There are **four** different types of actions that can be executed.
 }
 ```
 
-**4. Simple String (legacy)**
+**4. Wait**
+
+```nix
+{
+  type = "wait"; 
+  duration = 30; # sleeps 30 seconds before executing the next defined automation action 
+}
+```
+
+**5. Simple String (legacy)**
 
 ```nix
 "echo 'Hello Ducks'"

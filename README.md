@@ -29,7 +29,7 @@ An optional dashboard page is generated from the defined Nix configuration to di
       │             │
       ▼             ▼
  zigbee2mqtt    adb/media
-      │             │
+      │             │      
       └──────┬──────┘
              ▼
           Devices
@@ -57,7 +57,7 @@ Use `Zigduck2mqttnix`:
 ```nix
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    zigduck2mqttnix.url = "github:quackhack-mcblindy/zigduck2mqttnix";
+    zigduck2mqttnix.url = "github:quackhack-mcblindy/Zigduck2mqttnix";
   };
 ```
 
@@ -116,7 +116,7 @@ Use `Zigduck2mqttnix`:
 ```nix
   house = {
     zigbee = {
-      # without this network key there is no reproducibility
+      # without this network key there is no reproducibility and all devices would need to be paired again
       networkKeyFile = config.sops.secrets.z2m_network_key.path;
       mosquitto = {
         host = "192.168.1.110";
@@ -126,14 +126,14 @@ Use `Zigduck2mqttnix`:
       coordinator = {
         vendorId =  "10c3";
         productId = "ea61";
-        symlink = "zigbee"; # device symlink
+        symlink = "zigbee"; # symlinks usb port as "/dev/zigbee"
       };
       # optional philips hue  bridge etc
       hueSyncBox = { 
         enable = true;
         bridge = { 
           ip = "192.168.1.33";
-          # api token:
+          # to fetch api token:
           # curl -X POST http://192.168.1.33/api -d '{"devicetype":"house#nixos"}'
           passwordFile = config.sops.secrets.hueBridgeAPI.path;
         }; 
@@ -174,9 +174,10 @@ Use `Zigduck2mqttnix`:
 💡 Lights /  Devices 
 </strong></summary>
 
-  
+<br>
+
 zigduck2mqttnix always uses smart defaults.   
-Define a dimmer, or motion sensor it'those devices would default to control that room, unless overidden.     
+Define a dimmer, or motion sensor and those devices would default to control its defined room, unless overidden.     
 
 **Example configuration:**  
 
@@ -187,17 +188,27 @@ Define a dimmer, or motion sensor it'those devices would default to control that
         "0x0016830103ba7e95" = { # 64bit IEEE address (this is the unique device ID)  
           friendly_name = "Dimmer Switch Kitchen"; # simple human readable friendly name
           room = "kitchen"; # bind to group
-          type = "dimmer"; # device type
+          type = "dimmer"; # device type (light, hue_light, dimmer, motion, sensor, blinds, ...)
           endpoint = 1; # zigbee endpoint
-          icon = "mdi:toggle-switch";
-          batteryType = "CR2450"; # optional
+          icon = "mdi:toggle-switch"; # icosn used on dashboard
+          batteryType = "CR2450"; # optional - currently only used as a note to self
         }; 
         "0x0017880402750848a" = { 
           friendly_name = "Spotlight kök 1";
           room = "kitchen";
           type = "light";
           icon = "mdi:spotlight";
+          supports_temperature = true;
           endpoint = 11;
+        };
+        "00178801095f06300b" = {
+          friendly_name = "TV Play Strip";
+          room = "tv-area";
+          type = "hue_light";
+          icon = "mdi:light-strip";
+          endpoint = 1;
+          supports_color = true;
+          hue_id = 38; 
         };
         "0x54ef4410003e58e2" = { 
           friendly_name = "Roller Shade";
@@ -205,8 +216,7 @@ Define a dimmer, or motion sensor it'those devices would default to control that
           type = "blind";
           icon = "mdi:blinds";
           endpoint = 1;
-        };
-        
+        };  
         "0x00178801021311c4" = { 
           friendly_name = "Motion Sensor Hall";
           room = "hallway";
@@ -243,7 +253,8 @@ Define a dimmer, or motion sensor it'those devices would default to control that
     zigbee
       dimmer = {
         message = "action";
-        doubleClickTimeout = 500;
+        # double clicking on automatically cycles defined scenes in the dimmers room.
+        doubleClickTimeout = 500; # ms
         # optional as these defaults match most dimmers
         #actions = {
         #  onPress = "on_press_release";
@@ -252,11 +263,13 @@ Define a dimmer, or motion sensor it'those devices would default to control that
       };
       
       motion = {
+        # enable to let motion sensors turn on room lights
         enable = true;
         trigger.lights = {
+          # time window in which motion trigger lights on
           after = 14;
           before = 9;
-          duration = 900;
+          duration = 900; # turn off lights again after x seconds of no motion
         };  
       };
 ```
@@ -277,11 +290,15 @@ Define a dimmer, or motion sensor it'those devices would default to control that
     scenes = {
       "Scene name" = {
         # device friendly_name
-        "Spotlight kök 1" = {
+        "Spotlight 1" = {
           state = "ON";
           brightness = 200;
           color = { hex = "#00FF00"; };
         };
+        "Spotlight 2" = {
+          state = "OFF";        
+          transition = 100;
+        };          
         # ... more lights
 ```
 
@@ -305,7 +322,7 @@ Define a dimmer, or motion sensor it'those devices would default to control that
         greeting = {
           enable = true;
           awayDuration = 7200;
-          delay = 10;
+          delay = 10; # wait x seconds before action is performed
           actions = [ 
             {
               type = "shell";
@@ -374,7 +391,7 @@ Define a dimmer, or motion sensor it'those devices would default to control that
                 type = "shell";
                 command = ''
                   power=$(jq -r '."Fläkt".power' /var/lib/zigduck/state.json)
-                  # if kitchen fan is consuming energy turn it off in 2 minutes
+                  # if kitchen fan is consuming energy turn it off after 2 minutes
                   if (( power > 20 )); then
                     zigduck-cli --publish --topic "zigduck/Fläkt/set" --payload '{"countdown": 120}'
                   fi
@@ -406,8 +423,8 @@ Define a dimmer, or motion sensor it'those devices would default to control that
           
         # 3. global actions automations  
         global_actions = {
-          leak_detected = [ "yo notify '🚨 WATER LEAK DETECTED!'" ];
-          smoke_detected = [ "yo notify '🔥 SMOKE DETECTED!'" ];
+          leak_detected = [ "notify '🚨 WATER LEAK DETECTED!'" ];
+          smoke_detected = [ "notify '🔥 SMOKE DETECTED!'" ];
         };
 
         # 4. [optional] dimmer actions automations (default configured per room)
@@ -415,7 +432,7 @@ Define a dimmer, or motion sensor it'those devices would default to control that
           bedroom = {
             off_hold_release = {
               enable = true;
-              description = "Turn off all configured light devices";
+              description = "Turn off all configured light devices + turn of kitchen fan";
               extra_actions = [];
               override_actions = [
                 {
@@ -468,12 +485,15 @@ Define a dimmer, or motion sensor it'those devices would default to control that
 
 ```nix
   house = {
-    # path to a file containing user 's HTTPS URL.
-    # example file contents: https://media.my-domain.org
+    # Android TV requires a https domain to be able to play external .m3u files 
+    
+    # path to a file containing user's HTTPS URL.
+    # example file contents: ```https://media.my-domain.org```
     https.urlFile = config.sops.secrets.webserver.path;
+
     # root directory for the media library.
-    # the URL above should point to this service.
-    # no external port needs to be exposed as long as the TLS certificate remains valid.
+    # the URL above should point to this directory as a file server.
+    # no external port needs to be exposed on router as long as the TLS certificate remains valid.
     media.root = "/Pool";
     
     # YouTube API token
@@ -483,7 +503,7 @@ Define a dimmer, or motion sensor it'those devices would default to control that
     media = {
       movies = "/Pool/Movies";
       tv = "/Pool/TV"; 
-      music = "/Pool/Music"; 
+      music = "/Pool/Music";
       musicVideos = "/Pool/Music_Videos";
       otherVideos = "/Pool/Other_Videos"; 
       podcasts = "/Pool/Podcasts";
@@ -535,6 +555,7 @@ Define a dimmer, or motion sensor it'those devices would default to control that
 ```
   house = {
     zigbee.automations = {
+      # furst let's create a file that the status card below can read
       mqtt_triggered = {    
         temperature_update = {
           enable = true;
@@ -565,9 +586,9 @@ Define a dimmer, or motion sensor it'those devices would default to control that
         };
       };  
     };   
-    
+
+    # now we can create a customized card that reads and displays the temperature (with history chart)
     dashboard = {
-      # optional status cards
       statusCards = {    
         temperature = {
           enable = true;
@@ -585,12 +606,12 @@ Define a dimmer, or motion sensor it'those devices would default to control that
         };         
       };
       
-      # optional extra custom dashboard pages
+      # if user wants to have extra dashboard tabs
       pages = {    
         "3" = {
           icon = "fas fa-television";
           title = "remote";
-          # symlink optional files/directories to webserver
+          # symlink optional extra files/directories to webserver
           files = { tv = "/var/lib/zigduck/tv"; };
           css = # css code
           code = # html code
@@ -702,7 +723,19 @@ Options:
           Print help (see more with '--help')
   -V, --version
           Print version
+```
 
+<br>
+
+*Example usage:*
+
+```
+zigduck-cli --scene myScene
+zigduck-cli --scene myScene --room kitchen
+zigduck-cli --blinds up
+zigduck-cli --device myLight --state on --brightness 90 --color red --transition 5
+zigduck-cli timer set --minutes 15 --seconds 30
+zigduck-cli --publish --topic "zigduck/Fläkt/set" --payload '{"countdown": 0}'
 ```
 
 <br>
@@ -731,6 +764,13 @@ Options:
 
 ```
 
+*Example usage:*
+
+```
+tv --typ tv --search "big bang theory"
+tv --typ song --search "the duck song" --room bedroom
+tv --typ youtube --search "play a youtube video"
+```
 
 
 <br>
@@ -825,5 +865,6 @@ This project is licensed under the terms of the MIT license.
 See the `LICENSE` file in the repository for full details.
 
 Contributions are welcomed.
+
 
 
