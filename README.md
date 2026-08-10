@@ -177,7 +177,7 @@ Use `Zigduck2mqttnix`:
 <br>
 
 zigduck2mqttnix always uses smart defaults.   
-Define a dimmer, or motion sensor and those devices would default to control its defined room, unless overidden.     
+Define a dimmer, or motion sensor and those devices would default to control its defined room, unless overridden.     
 
 **Example configuration:**  
 
@@ -190,7 +190,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
           room = "kitchen"; # bind to group
           type = "dimmer"; # device type (light, hue_light, dimmer, motion, sensor, blinds, ...)
           endpoint = 1; # zigbee endpoint
-          icon = "mdi:toggle-switch"; # icosn used on dashboard
+          icon = "mdi:toggle-switch"; # icon used on dashboard
           batteryType = "CR2450"; # optional - currently only used as a note to self
         }; 
         "0x0017880402750848a" = { 
@@ -364,7 +364,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
 
           timer_finish = {
             enable = true;
-            description = "an timer is ringing";
+            description = "a timer is ringing";
             topic = "zigbee2mqtt/timer/finished"; 
             actions = [
               { type = "scene"; scene = "max"; }
@@ -380,7 +380,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
         # 2. room action automations
         room_actions = {
           hallway = { 
-            # sinple string can be used as "shell" automation action
+            # simple string can be used as "shell" automation action
             door_opened = [ "curl http://192.168.1.15/api/settings/speaker/play/ding" ];
             door_closed = [];
           };
@@ -432,7 +432,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
           bedroom = {
             off_hold_release = {
               enable = true;
-              description = "Turn off all configured light devices + turn of kitchen fan";
+              description = "Turn off all configured light devices + turn off kitchen fan";
               extra_actions = [];
               override_actions = [
                 {
@@ -453,7 +453,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
         time_based = {       
           morning_wakeup = {
             enable = true;
-            description = "set morning wakeup alarm (dont miss lunch)";
+            description = "set morning wakeup alarm (don't miss lunch)";
             # 01 AM mon-fri 
             schedule = {
               start = "01:00";
@@ -555,7 +555,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
 ```
   house = {
     zigbee.automations = {
-      # furst let's create a file that the status card below can read
+      # first let's create a file that the status card below can read
       mqtt_triggered = {    
         temperature_update = {
           enable = true;
