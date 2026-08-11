@@ -189,9 +189,9 @@ let
 
   mainConfig = {
     mosquitto = {
-      broker = house.zigbee.mosquitto.host;
-      user = house.zigbee.mosquitto.username;
-      password_file = house.zigbee.mosquitto.passwordFile; 
+      broker = cfg.cli.broker;
+      user = cfg.cli.user;
+      password_file = cfg.cli.passwordFile; 
       base_topic = house.zigbee.mosquitto.baseTopic;
     };
     hue = {
@@ -319,7 +319,7 @@ in {
 
       broker = mkOption {
         type = types.str;
-        default = "127.0.0.1";
+        default = config.house.zigbee.mosquitto.host;
         description = "Default MQTT broker host for the zg wrapper.";
       };
 

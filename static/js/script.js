@@ -3,7 +3,20 @@
 
   window.statusCardsConfig = {};
   window.enabledCards = [];
-
+  
+  async function loadBaseTopic() {
+    try {
+      const resp = await fetch('/config.json');
+      if (!resp.ok) throw new Error('Failed to load config');
+      const config = await resp.json();
+      window.baseTopic = config.mosquitto?.base_topic || 'zigbee2mqtt';
+      console.log('🦆 Base topic:', window.baseTopic);
+    } catch (e) {
+      console.warn('Could not load config, using default', e);
+      window.baseTopic = 'zigbee2mqtt';
+    }
+  }
+  
   async function loadCardConfig() {
     try {
       const resp = await fetch('/status-cards-config.json');
@@ -202,7 +215,8 @@
   function handleCardClick(cardName) {
     const config = window.statusCardsConfig[cardName];
     if (!config) return;
-    const topic = `zigbee2mqtt/dashboard/card/${cardName}/click`;
+    const base = window.baseTopic || 'zigbee2mqtt';
+    const topic = `${base}/dashboard/card/${cardName}/click`;
     const msg = JSON.stringify({
       action: 'click',
       card: cardName,
@@ -1051,6 +1065,7 @@
   document.addEventListener('DOMContentLoaded', () => new DuckStealer());
 
   document.addEventListener('DOMContentLoaded', async () => {
+    await loadBaseTopic();
     await loadCardConfig();
     if (window.initStatusCards) window.initStatusCards();
     if (window.initRoomControls) window.initRoomControls();

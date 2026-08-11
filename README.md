@@ -7,7 +7,7 @@
 <br>
 
 Declarative full-stack Zigbee home automation system that's reproducible and deployable.  
-Nix for configuration, Rust for responsive async runtime. 
+Nix for configuration, Rust for responsive async runtime.  
 Under the hood: zigbee2mqtt, Mosquitto, serde_json and adb.   
   
 Define once, forget forever.   
@@ -87,15 +87,13 @@ Use `Zigduck2mqttnix`:
       dashboard.enable = true;
       dashboard.port = 13336;
       dashboard.passwordFile = config.sops.secrets.dashboard.path;
-      broker = "192.168.1.110";
-      cli.broker = "192.168.1.110";      
+      # if using `yo` and want to execuite scripts from the `zigduck`
       extraEnv.PATH = 
         "/run/current-system/sw/bin:"
         + "/optional/wrappers";
       };              
-    };
 
-};
+    };
 ```
 
 
@@ -164,7 +162,6 @@ Use `Zigduck2mqttnix`:
       livingroom.icon = "mdi:sofa";
       wc.icon         = "mdi:toilet";
       tv-area.icon    = "mdi:television";
-      other.icon      = "mdi:misc";
     };
 ```
 
@@ -603,6 +600,13 @@ Define a dimmer, or motion sensor and those devices would default to control its
           detailsFormat = "Temperature in Hallway";
           chart = true;
           historyField = "history";
+          # perform a automation action when clicking the dashboard card
+          on_click_action = [
+            {
+              type = "shell";
+              command = "example shell command.'";
+            }
+          ];  
         };         
       };
       
@@ -850,8 +854,8 @@ Inspiration?
 
 <br>
 
-for a full configuration example view:  
-*[my home](https://github.com/QuackHack-McBlindy/dotfiles/blob/main/modules/myHouse.nix)*
+for a full real configuration example, view:  
+*[my house](https://github.com/QuackHack-McBlindy/dotfiles/blob/main/modules/myHouse.nix)*
 
 <br>
 

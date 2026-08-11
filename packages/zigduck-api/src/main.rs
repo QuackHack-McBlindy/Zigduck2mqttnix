@@ -1521,13 +1521,10 @@ fn handle_request(mut stream: TcpStream) {
     };
 
 
-    if path_no_query != "/health" && path_no_query != "/health/all" && !check_password_auth(&headers, query) {
-        send_response(&mut stream, "401 Unauthorized", 
-            r#"{"error":"Authentication required","message":"Valid password required in Authorization: Bearer <password> header, X-API-Key header, or ?password= query parameter"}"#, 
-            None);
+    if method != "OPTIONS" && path_no_query != "/health" && path_no_query != "/health/all" && !check_password_auth(&headers, query) {
+        send_response(&mut stream, "401 Unauthorized", r#"{"error":"Authentication required"}"#, Some("application/json"));
         return;
     }
-
 
     match (method, path_no_query) {
         ("OPTIONS", _) => {

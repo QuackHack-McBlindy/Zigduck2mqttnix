@@ -409,25 +409,26 @@ let
     WORKDIR=$(mktemp -d)
 
     # symlink html files & manifest
-    ln -sf /etc/login.html $WORKDIR/ 
-    ln -sf /etc/script.js $WORKDIR/     
-    ln -sf /etc/index.html $WORKDIR/
+    ln -sf /etc/zigduck/login.html $WORKDIR/ 
+    ln -sf /etc/zigduck/script.js $WORKDIR/     
+    ln -sf /etc/zigduck/index.html $WORKDIR/
     ln -sf /etc/static/tv.html $WORKDIR/
-    ln -sf /etc/site.webmanifest $WORKDIR/
+    ln -sf /etc/zigduck/site.webmanifest $WORKDIR/
             
     # & favicons
-    ln -sf /etc/favicon-32x32.png $WORKDIR/
-    ln -sf /etc/favicon-16x16.png $WORKDIR/
-    ln -sf /etc/favicon.ico $WORKDIR/
-    ln -sf /etc/apple-touch-icon.png $WORKDIR/
-    ln -sf /etc/android-chrome-512x512.png $WORKDIR/
-    ln -sf /etc/android-chrome-192x192.png $WORKDIR/
+    ln -sf /etc/zigduck/favicon-32x32.png $WORKDIR/
+    ln -sf /etc/zigduck/favicon-16x16.png $WORKDIR/
+    ln -sf /etc/zigduck/favicon.ico $WORKDIR/
+    ln -sf /etc/zigduck/apple-touch-icon.png $WORKDIR/
+    ln -sf /etc/zigduck/android-chrome-512x512.png $WORKDIR/
+    ln -sf /etc/zigduck/android-chrome-192x192.png $WORKDIR/
 
     # symlink json files
-    ln -sf /etc/devices.json $WORKDIR/
-    ln -sf /etc/rooms.json $WORKDIR/
-    ln -sf /etc/tv.json $WORKDIR/
-    ln -sf /var/lib/zigduck/state.json $WORKDIR/  
+    ln -sf /etc/zigduck/config.json $WORKDIR/    
+    ln -sf /etc/zigduck/devices.json $WORKDIR/
+    ln -sf /etc/zigduck/rooms.json $WORKDIR/
+    ln -sf /etc/zigduck/tv.json $WORKDIR/
+    ln -sf ${config.services.zigduck.stateDir}/state.json $WORKDIR/  
     ln -sf /etc/static/epg.json $WORKDIR/   
 
 
@@ -2348,20 +2349,19 @@ EOF
 
 in {
 
-
   networking.firewall.allowedTCPPorts = [ cfg.dashboard.port ];
   
-  environment.etc."index.html" = {
+  environment.etc."zigduck/index.html" = {
     text = indexHtml;
     mode = "0644";
   };
 
-  environment.etc."login.html" = {
+  environment.etc."zigduck/login.html" = {
     source = ./../static/html/login.html;
     mode = "0644";
   };
   
-  environment.etc."script.js" = {
+  environment.etc."zigduck/script.js" = {
     source = ./../static/js/script.js;
     mode = "0644";
   };
@@ -2372,26 +2372,26 @@ in {
       text = builtins.toJSON config.house.zigbee.devices;
     };
 
-  environment.etc."rooms.json".source =
+  environment.etc."zigduck/rooms.json".source =
     pkgs.writeTextFile {
       name = "rooms.json";
       text = builtins.toJSON config.house.rooms;
     };
   
-  environment.etc."tv.json".source =
+  environment.etc."zigduck/tv.json".source =
     pkgs.writeTextFile {
       name = "tv.json";
       text = builtins.toJSON config.house.tv;
     };
 
-  environment.etc."favicon-32x32.png".source = ./../static/icons/favicon-32x32.png;
-  environment.etc."favicon-16x16.png".source = ./../static/icons/favicon-16x16.png;
-  environment.etc."favicon.ico".source = ./../static/icons/favicon.ico;
-  environment.etc."apple-touch-icon.png".source = ./../static/icons/apple-touch-icon.png;
-  environment.etc."android-chrome-512x512.png".source = ./../static/icons/android-chrome-512x512.png;
-  environment.etc."android-chrome-192x192.png".source = ./../static/icons/android-chrome-192x192.png;
+  environment.etc."zigduck/favicon-32x32.png".source = ./../static/icons/favicon-32x32.png;
+  environment.etc."zigduck/favicon-16x16.png".source = ./../static/icons/favicon-16x16.png;
+  environment.etc."zigduck/favicon.ico".source = ./../static/icons/favicon.ico;
+  environment.etc."zigduck/apple-touch-icon.png".source = ./../static/icons/apple-touch-icon.png;
+  environment.etc."zigduck/android-chrome-512x512.png".source = ./../static/icons/android-chrome-512x512.png;
+  environment.etc."zigduck/android-chrome-192x192.png".source = ./../static/icons/android-chrome-192x192.png;
 
-  environment.etc."site.webmanifest".source = iOSmanifest;
+  environment.etc."zigduck/site.webmanifest".source = iOSmanifest;
 
   systemd.services = lib.mkIf cfg.dashboard.enable {
     zigduck-dashboard = {
@@ -2412,7 +2412,7 @@ in {
         ProtectHome = true;
         ReadOnlyPaths = [
           "/etc"
-          "/var/lib/zigduck"
+          "${config.services.zigduck.stateDir}"
           (builtins.toString config.house.dashboard.passwordFile)
         ];
 

@@ -96,14 +96,7 @@ in {
           '';
         };
       };    
-    
-      soundHost = lib.mkOption {
-        type = lib.types.str;
-        description = "hostname of the machine that should play sounds (TTS, timers, alarms etc)";
-        default = "";
-        example = "desktop";
-      };
-      
+          
       # dashboard configuraiton
       dashboard = {
         passwordFile = lib.mkOption {
