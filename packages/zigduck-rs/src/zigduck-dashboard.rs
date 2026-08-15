@@ -12,7 +12,6 @@ use std::path::Path;
 
 use serde::{Serialize, Deserialize};
 use serde_json::{Value, json, Map};
-use rand::seq::SliceRandom;
 use ducktrace_logger::*;
 use lazy_static::lazy_static;
 
@@ -24,6 +23,8 @@ fn log(message: &str) {
 #[derive(Debug, Deserialize)]
 struct DashboardConfig {
     dashboard_static_root: String,
+    port: u16,
+    secure_cookies: bool,
     state_file: String,
     alarms_file: String,
     devices_file: String,
@@ -209,7 +210,6 @@ impl AlarmManager {
 
     fn next_trigger_time(&self) -> Option<NaiveTime> {
         let now = Local::now();
-        let today = now.date_naive();
         let current_time = now.time();
 
         self.alarms.lock().unwrap()
@@ -383,9 +383,7 @@ impl TimerManager {
             drop(timers);
             self.condvar.notify_one();
             Ok(())
-        } else {
-            Err("Timer not found".into())
-        }
+        } else { Err("Timer not found".into()) }
     }
 
     fn resume(&self, id: TimerId) -> Result<(), String> {
@@ -399,9 +397,7 @@ impl TimerManager {
             } else {
                 Err("Timer not paused".into())
             }
-        } else {
-            Err("Timer not found".into())
-        }
+        } else { Err("Timer not found".into()) }
     }
 
     fn cancel(&self, id: TimerId) -> Result<Timer, String> {
@@ -520,9 +516,7 @@ fn urldecode(s: &str) -> String {
             b'+' => {
                 result.push(b' ');
             }
-            _ => {
-                result.push(bytes[i]);
-            }
+            _ => { result.push(bytes[i]); }
         }
         i += 1;
     }
@@ -839,9 +833,7 @@ fn handle_browse(path_arg: &str, use_v2: bool) -> String {
                     let item_path = path_std.join(item);
                     if item_path.is_dir() {
                         directories.push(item.to_string());
-                    } else {
-                        files.push(item.to_string());
-                    }
+                    } else { files.push(item.to_string()); }
                 }
             }
             _ => return r#"{"error":"Failed to list directory"}"#.to_string(),
@@ -958,9 +950,8 @@ fn handle_device_combined_control(device_name: &str, commands: &[(&str, String)]
                 if let Ok(raw_val) = value.parse::<u16>() {
                     let pct = if raw_val > 100 {
                         ((raw_val as f32 / 254.0) * 100.0).round() as u8
-                    } else {
-                        raw_val as u8
-                    };
+                    } else { raw_val as u8 };
+                    
                     if pct < 1 || pct > 100 {
                         return format!(
                             r#"{{"error":"Invalid brightness value (must be 1-100 or 1-254): {}"}}"#,
@@ -976,9 +967,7 @@ fn handle_device_combined_control(device_name: &str, commands: &[(&str, String)]
             "color" | "colour" => {
                 let hex_value = if value.starts_with('#') {
                     value.clone()
-                } else {
-                    format!("#{}", value)
-                };
+                } else { format!("#{}", value) };
                 if hex_value.len() == 7 {
                     args.push("--color".to_string());
                     args.push(hex_value);
@@ -1423,11 +1412,10 @@ fn handle_request(mut stream: TcpStream) {
         let expected = read_password_from_file();
         if password == expected {
             let token = create_session();
-            let cookie = format!("auth_token={}; Path=/; HttpOnly; Secure; SameSite=Lax", token);
+            let secure_flag = if CONFIG.secure_cookies { "; Secure" } else { "" };
+            let cookie = format!("auth_token={}; Path=/; HttpOnly{}; SameSite=Lax", token, secure_flag);
             send_response_with_cookie(&mut stream, "302 Found", "", None, Some(&cookie), Some("/"));
-        } else {
-            send_response(&mut stream, "401 Unauthorized", r#"{"error":"Invalid password"}"#, None);
-        }
+        } else { send_response(&mut stream, "401 Unauthorized", r#"{"error":"Invalid password"}"#, None); }
         return;
     }
 
@@ -1435,9 +1423,7 @@ fn handle_request(mut stream: TcpStream) {
         if path_no_query == "/" {
             if authenticated {
                 serve_static_file(&mut stream, "/index.html", true);
-            } else {
-                send_redirect(&mut stream, "/login.html");
-            }
+            } else { send_redirect(&mut stream, "/login.html"); }
             return;
         }
         if serve_static_file(&mut stream, path_no_query, authenticated) {
@@ -1817,12 +1803,13 @@ fn main() {
         }
     });
 
-    if TcpListener::bind(&address).is_err() {
-        dt_error(&format!("❌ Port {} is already in use", port));
-        std::process::exit(1);
-    }
-
-    let listener = TcpListener::bind(&address).expect("Failed to bind to address");
+    let listener = match TcpListener::bind(&address) {
+        Ok(l) => l,
+        Err(e) => {
+            dt_error(&format!("Failed to bind {}: {}", address, e));
+            std::process::exit(1);
+        }
+    };
     log("Available endpoints:");
     log("  GET  /timers                     - List timers");
     log("  GET  /alarms                     - List alarms");

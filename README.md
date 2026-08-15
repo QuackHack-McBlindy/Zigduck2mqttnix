@@ -12,19 +12,20 @@
 
 # **A Flake For Your House**
 
- 
-Declarative full-stack **NixOS** (Zigbee) home automation system that's reproducible and deployable.  
+
+**Zigduck2mqttnix** is the flake that brings version control to your smart home.   
+A **NixOS**-based Zigbee full-stack home automation system that is reproducible, declarative, and deployable.    
 Nix for configuration, Rust for responsive async runtime.  
 Under the hood: zigbee2mqtt, Mosquitto, tokio/serde_json and adb.   
   
-**Define once, forget forever.**   
+**Define once, deploy forever.**   
 
 **Zigduck2mqttnix** uses smart defaults, after defining your rooms & devices --   
 most users don’t need to write any automations at all.  
 Lights, dimmers, motion sensors - it should all work as expected **out of the box**.  
-Everything is configurable via NixOS options.   
+**Everything** is configurable via NixOS options.   
   
-An optional dashboard page is generated from the defined Nix configuration to display customized cards as well as scene activation and device control on-the-fly.   
+An optional **dashboard** page is generated from the defined Nix configuration to display customized cards as well as scene activation and device control on-the-fly.   
  
 
 ```markdown
@@ -44,12 +45,6 @@ An optional dashboard page is generated from the defined Nix configuration to di
              ▼
           Devices
 ```
-
-
-
-<br>
-
-See [DOCS](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/DOCS.md) for more text.  
 
 <br> 
  
@@ -86,11 +81,13 @@ See [DOCS](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/DOCS.
 ```nix
     services.zigduck = {
       enable = true;
-      # for security reasons, it's highly recommended to serve the dashboard over a reverse proxy (Nginx, Caddy, Trafik, etc).  
+      # for security reasons, it's highly recommended to serve the dashboard over a reverse proxy (Nginx, Caddy, Traefik, etc).  
       dashboard.enable = true;
+      # set to false if using http (not recommended)
+      secure = true; 
       dashboard.port = 13336;
       dashboard.passwordFile = config.sops.secrets.dashboard.path;
-      # if using `yo` and want to execuite scripts from the `zigduck` user
+      # if using `yo` and want to execute scripts from the `zigduck` user
       extraEnv.PATH = 
         "/run/current-system/sw/bin:"
         + "/optional/wrappers";
@@ -110,6 +107,7 @@ See [DOCS](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/DOCS.
 <details><summary><strong>
 🛜 Zigbee configuration
 </strong></summary>
+
 
 **Example configuration:**
 
@@ -655,9 +653,9 @@ Define a dimmer, or motion sensor and those devices would default to control it'
 🎙️ Voice (optional)
 </strong></summary>
 
-[yo](https://github.com/QuackHack-McBlindy/yo) is handling everything voice/natural language related, please see it's repo for setup instructions.  
+The companion flake [yo](https://github.com/QuackHack-McBlindy/yo) is handling everything voice/natural language related, please see it's repo for installation instructions.  
 
-Once setup, copy the `./modules/voice` directory into your NixOS configuration to be able to control your devices/rooms/media/timers/alarmsetc.
+Once setup, copy the `./modules/voice` *(TBA)* directory into your NixOS configuration to be able to control your devices/rooms/media/timers/alarmsetc.
 
 For `ESP32-S3` based yo clients - check out [yo-esp](https://github.com/QuackHack-McBlindy/yo-esp).   
 To write additional custom voice commands, please see [yo](https://github.com/QuackHack-McBlindy/yo) for instructions.   

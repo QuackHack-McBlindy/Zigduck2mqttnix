@@ -1617,9 +1617,7 @@ impl ZigduckState {
                     if let Some(brightness) = data.get("brightness").and_then(|v| v.as_u64()) {
                         let bri = if brightness > 100 {
                             brightness.clamp(0, 254)
-                        } else {
-                            ((brightness as f64 / 100.0) * 254.0).round() as u64
-                        };
+                        } else { ((brightness as f64 / 100.0) * 254.0).round() as u64 };
                         hue_payload.insert("bri".into(), Value::Number(bri.into()));
                     }
 
@@ -1843,29 +1841,37 @@ impl ZigduckState {
             }
 
             // 🦆 says ⮞ DOOR / WINDOW SENSOR
-            if let Some(contact) = data["contact"].as_bool() {
-                if !contact {
-                    dt_info!("🚪 Door open in {} ({})", room, device_name);
-                    self.execute_automations("contact", "door_opened", device_name, &room).await?;
-                    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-                    let last_motion_str = self.get_state("apartment", "last_motion").unwrap_or_else(|| "0".to_string());
-                    let last_motion: u64 = last_motion_str.parse().unwrap_or(0);
-                    let time_diff = current_time.saturating_sub(last_motion);
-                    dt_debug!("TIME: {} | LAST MOTION: {} | TIME DIFF: {}", current_time, last_motion, time_diff);
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
 
-                    if let Some(greeting) = &self.automations.greeting {
-                        if greeting.enable && time_diff > greeting.away_duration {
-                            dt_info!("Welcoming you home! (no motion for {} seconds)", greeting.away_duration);
-                            tokio::time::sleep(Duration::from_secs(greeting.delay)).await;
-                            for action in &greeting.actions {
-                                if let Err(e) = self.execute_automation_action(action, "greeting", "global").await {
-                                    dt_debug!("Error executing greeting action: {}", e);
-                                }
+            let last_motion_str = self
+                .get_state("apartment", "last_motion")
+                .unwrap_or_else(|| "0".to_string());
+
+            let last_motion: u64 = last_motion_str.parse().unwrap_or(0);
+
+            let time_diff = current_time.saturating_sub(last_motion);
+
+            if let Some(greeting) = &self.automations.greeting {
+                if greeting.enable && time_diff > greeting.away_duration {
+                    dt_info!("Welcoming you home! (no motion for {} seconds)", greeting.away_duration);
+
+                    let greeting = greeting.clone();
+                    let state = self.clone();
+
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(greeting.delay)).await;
+
+                        for action in &greeting.actions {
+                            if let Err(e) = state.execute_automation_action(action, "greeting", "global").await {
+                                dt_debug!("Error executing greeting action: {}", e);
                             }
                         }
-                    } else { dt_debug!("🛑 NOT WELCOMING: only {} minutes since last motion", time_diff / 60); }
-                } else { self.execute_automations("contact", "door_closed", device_name, &room).await?; }
-            }
+                    });
+                }
+            } else { dt_debug!("🛑 NOT WELCOMING: only {} minutes since last motion", time_diff / 60); }
 
             // 🦆 says ⮞ BLINDz
             if let Some(position) = data["position"].as_u64() {
@@ -1874,9 +1880,7 @@ impl ZigduckState {
                         dt_info!("🪟 Rolled DOWN {} in {}", device_name, room);
                     } else if position == 100 {
                         dt_info!("🪟 Rolled UP {} in {}", device_name, room);
-                    } else {
-                        dt_info!("🪟 {} positioned at {}% in {}", device_name, position, room);
-                    }
+                    } else { dt_info!("🪟 {} positioned at {}% in {}", device_name, position, room); }
                 }
             }
 
@@ -1886,23 +1890,17 @@ impl ZigduckState {
                     "outlet" => {
                         if state == "ON" {
                             dt_debug!("🔌 {} Turned ON in {}", device_name, room);
-                        } else if state == "OFF" {
-                            dt_debug!("🔌 {} Turned OFF in {}", device_name, room);
-                        }
+                        } else if state == "OFF" { dt_debug!("🔌 {} Turned OFF in {}", device_name, room); }
                     }
                     "light" => {
                         if state == "ON" {
                             dt_debug!("💡 {} Turned ON in {}", device_name, room);
-                        } else if state == "OFF" {
-                            dt_debug!("💡 {} Turned OFF in {}", device_name, room);
-                        }
+                        } else if state == "OFF" { dt_debug!("💡 {} Turned OFF in {}", device_name, room); }
                     }
                     _ => {
                         if state == "ON" {
                             dt_debug!("⚡ {} Turned ON in {}", device_name, room);
-                        } else if state == "OFF" {
-                            dt_debug!("⚡ {} Turned OFF in {}", device_name, room);
-                        }
+                        } else if state == "OFF" { dt_debug!("⚡ {} Turned OFF in {}", device_name, room); }
                     }
                 }
             }

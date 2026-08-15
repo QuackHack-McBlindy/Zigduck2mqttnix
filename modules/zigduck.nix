@@ -211,6 +211,8 @@ let
 
   dashboardConfigFiles = pkgs.writeText "dashboard-config.json" (builtins.toJSON {
     dashboard_static_root = "${cfg.stateDir}/dashboard";
+    port = cfg.dashboard.port;
+    secure_cookies = cfg.dashboard.secure; 
     state_file = "${cfg.stateDir}/state.json";
     alarms_file = "${cfg.stateDir}/alarms.json";
     health_dir = "${cfg.stateDir}/health";
@@ -274,6 +276,11 @@ in {
         type = types.nullOr types.path;
         default = null;
         description = "Path to password file for API authentication (API_PASSWORD_FILE)";
+      };
+      secure = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Whether to set the Secure flag on authentication cookies. Set to false when serving over plain HTTP.";
       };
     };
 
@@ -515,6 +522,7 @@ in {
               MQTT_USER = house.zigbee.mosquitto.username;
               MQTT_PASSWORD_FILE = house.zigbee.mosquitto.passwordFile;
               ZIGDUCK_CONFIG_FILE = "/etc/zigduck/dashboard-config.json";
+              ZIGDUCK_DASHBOARD_SECURE_COOKIES = toString cfg.dashboard.secure;
               STATE_DIR = cfg.stateDir;
               DT_LOG_LEVEL = "INFO";
               DT_LOG_FILE = cfg.stateDir + "/zigduck.log";
