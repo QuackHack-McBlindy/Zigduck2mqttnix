@@ -15,7 +15,7 @@
  
 Declarative full-stack **NixOS** (Zigbee) home automation system that's reproducible and deployable.  
 Nix for configuration, Rust for responsive async runtime.  
-Under the hood: zigbee2mqtt, Mosquitto, serde_json and adb.   
+Under the hood: zigbee2mqtt, Mosquitto, tokio/serde_json and adb.   
   
 **Define once, forget forever.**   
 
@@ -116,34 +116,41 @@ See [DOCS](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/DOCS.
 ```nix
   house = {
     zigbee = {
-      # without this network key there is no reproducibility and all devices would need to be paired again
+      # points to the zigbee network encryption key. zigbee devices join a network using this key.
+      # if you lose/change it, all devices must be re-paired.
+      # without this network key there is no reproducibility!
       networkKeyFile = config.sops.secrets.z2m_network_key.path;
-      
+
+      # define coordinator stick
+      coordinator = {
+        vendorId =  "10c3"; # USB identifiers
+        productId = "ea61";
+        symlink = "zigbee"; # symlinks usb port as "/dev/zigbee"
+      };
+    
       mosquitto = {
         host = "192.168.1.110";
         username = "duckmqtt";
         passwordFile = config.sops.secrets.mosquitto.path;
       };
-      coordinator = {
-        vendorId =  "10c3";
-        productId = "ea61";
-        symlink = "zigbee"; # symlinks usb port as "/dev/zigbee"
-      };
+
       
-      # [optional] Philips Hue bridge etc
+      # [optional] Philips Hue hdmi sync box
       hueSyncBox = { 
         enable = true;
+        syncBox = {
+          ip = "192.168.1.34";
+          passwordFile = config.sops.secrets.hueBridgeAPI.path;
+          tv = "shield";
+        }; 
+        # Philips Hue bridge required for sync box
+        # hue devices are still fully integrated
         bridge = { 
           ip = "192.168.1.33";
           # to fetch api token:
           # curl -X POST http://192.168.1.33/api -d '{"devicetype":"house#nixos"}'
           passwordFile = config.sops.secrets.hueBridgeAPI.path;
         }; 
-        syncBox = {
-          ip = "192.168.1.34";
-          passwordFile = config.sops.secrets.hueBridgeAPI.path;
-          tv = "shield";
-        };
       }; 
     };
 ```     
