@@ -8,9 +8,9 @@
   <img src="images/logo.png" alt="Logo" width="330">
 </a> 
 
-<br><br>
+<br>
 
-# **Overview**
+# **A Flake For Your House**
 
  
 Declarative full-stack **NixOS** (Zigbee) home automation system that's reproducible and deployable.  
