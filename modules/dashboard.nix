@@ -2050,19 +2050,6 @@ let
                     });
                 }
                 
-                const API_BASE = `http://''${window.location.hostname}:${toString cfg.dashboard.port}`;
-                             
-                const apiEndpoints = {
-                  async checkHealth() {
-                    try {
-                      const response = await fetch(`''${API_BASE}/health`);
-                      return await response.json();
-                    } catch (error) {
-                      console.error('API health check failed:', error);
-                      return { error: 'API unavailable' };
-                    }
-                  }
-                };
                                                                                                        
                 initDashboard();
                 

@@ -8,9 +8,9 @@
   <img src="images/logo.png" alt="Logo" width="330">
 </a> 
 
-<br><br>
+<br>
 
-# **Overview**
+# **A Flake For Your House**
 
  
 Declarative full-stack **NixOS** (Zigbee) home automation system that's reproducible and deployable.  
@@ -382,7 +382,7 @@ Define a dimmer, or motion sensor and those devices would default to control it'
               { type = "wait"; duration = 2; }
               { type = "shell"; command = "curl http://192.168.1.13/api/settings/speaker/play/ding"; }
               # 5. simple string (shell shortcut)
-              # (can be used to write automations using natural language
+              # (with `yo`) can be used to write automations using natural language
               "yo do 'turn on all lights'"
               { type = "wait"; duration = 2; }     
               { type = "shell"; command = "curl http://192.168.1.15/api/settings/speaker/play/ding"; }          
@@ -823,54 +823,46 @@ API
 **Endpoints:**  
 
 
-| Endpoint | Method | Description | Parameters | Auth Required |
-|----------|--------|-------------|------------|---------------|
-| `/` | GET | Service info and list of all endpoints | None | Yes |
-| `/transcode-video`<br>`/api/transcode-video` | GET | Streams transcoded video from a given URL (MP4, chunked transfer) | `url` (URL to transcode) | Yes |
-| `/browse`<br>`/browsev2`<br>`/api/browse`<br>`/api/browsev2` | GET | Browse media directory (legacy `ls` or improved `find`). `browsev2` returns full path. | `path` (relative to media root) | Yes |
-| **Timers** | | | | |
-| `/timers` | GET | List all timers | None | Yes |
-| `/timers/set` | GET | Create a new timer | `hours`, `minutes`, `seconds` (at least one >0), `topic`, `payload`, optional `name` | Yes |
-| `/timers/pause` | GET | Pause a running timer | `id` (timer ID) | Yes |
-| `/timers/resume` | GET | Resume a paused timer | `id` | Yes |
-| `/timers/cancel` | GET | Cancel (delete) a timer | `id` | Yes |
-| **Alarms** | | | | |
-| `/alarms`<br>`/api/alarms` | GET | List all alarms | None | Yes |
-| `/alarms/add`<br>`/api/alarms/add` | GET | Add a new alarm | `hours` (0-23), `minutes` (0-59), `name`, optional `days` (comma-separated 0=Sun..6=Sat) | Yes |
-| `/alarms/remove`<br>`/api/alarms/remove` | GET | Remove an alarm | `id` | Yes |
-| `/alarms/toggle`<br>`/api/alarms/toggle` | GET | Toggle alarm on/off | `id` | Yes |
-| **Media (ADB)** | | | | |
-| `/media/power/on`<br>`/api/media/power/on` | GET | Wake up media device | `device` (IP, default `192.168.1.224`) | Yes |
-| `/media/power/off`<br>`/api/media/power/off` | GET | Sleep media device | `device` | Yes |
-| `/media/next` | GET | Next track | `device` | Yes |
-| `/media/previous` | GET | Previous track | `device` | Yes |
-| `/media/play`<br>`/media/pause` | GET | Toggle play/pause | `device` | Yes |
-| `/media/volume/up` | GET | Volume up | `device` | Yes |
-| `/media/volume/down` | GET | Volume down | `device` | Yes |
-| `/media/playlist` | GET | Launch playlist on device (ADB intent) | `device`, optional `url` (defaults to webserver `/playlist.m3u`) | Yes |
-| **Playlist (m3u file)** | | | | |
-| `/playlist/list` | GET | List current m3u playlist | None | Yes |
-| `/playlist/add` | GET | Add entry to playlist | `entry` (path) | Yes |
-| `/playlist/remove` | GET | Remove entry by index (0-based) | `index` | Yes |
-| `/playlist/shuffle` | GET | Shuffle playlist | None | Yes |
-| `/playlist/clear` | GET | Clear entire playlist | None | Yes |
-| **Health** (no auth) | | | | |
-| `/health`<br>`/api/health` | GET | Basic health check | None | No |
-| `/health/all`<br>`/api/health/all` | GET | Aggregate health from all services | None | No |
-| **State** | | | | |
-| `/state`<br>`/api/state` | GET | Full state of all Zigbee devices | None | Yes |
-| `/state/{device}`<br>`/api/state/{device}` | GET | State of a specific device | `{device}` (friendly name) | Yes |
-| `/state/room/{room}`<br>`/api/state/room/{room}` | GET | State of all devices in a room | `{room}` | Yes |
-| **Devices & Scenes** | | | | |
-| `/device/list`<br>`/api/device/list` | GET | List all devices (from `devices.json`) | None | Yes |
-| `/device/{device}/{command}/{value}...` | GET | Control a device (multiple commands can be chained) | `{device}` name, then pairs like `state/on`, `brightness/200`, `color/%23FF5733`, `temperature/300` | Yes |
-| `/device/rooms`<br>`/api/device/rooms` | GET | List devices grouped by room | None | Yes |
-| `/device/types`<br>`/api/device/types` | GET | List devices grouped by type | None | Yes |
-| `/scene/{scene}`<br>`/api/scene/{scene}` | GET | Activate a scene | `{scene}` (scene name) | Yes |
-| **Utilities** | | | | |
-| `/tts` | GET | Text‑to‑speech, returns audio/wav | `text` | Yes |
-| `/do`<br>`/api/do` | GET | Natural language command (e.g., `?cmd=do turn on kitchen light`) | `cmd` | Yes |
-| `/upload`<br>`/api/upload` | POST | File upload (multipart/form‑data) to `/var/lib/zigduck/uploads` | File data in body | Yes |
+| Endpoint | Method | Description | Parameters |
+|----------|--------|-------------|------------|
+| `/` | GET | Service info and list of all endpoints | None |
+| `/browse`<br>`/browsev2`<br>`/api/browse`<br>`/api/browsev2` | GET | Browse media directory (legacy `ls` or improved `find`). `browsev2` returns full path. | `path` (relative to media root) |
+| **Timers** | | | |
+| `/timers` | GET | List all timers | None |
+| `/timers/set` | POST | Create a new timer | `hours`, `minutes`, `seconds` (at least one >0), `topic`, `payload`, optional `name` |
+| `/timers/pause` | POST | Pause a running timer | `id` (timer ID) |
+| `/timers/resume` | POST | Resume a paused timer | `id` |
+| `/timers/cancel` | POST | Cancel (delete) a timer | `id` |
+| **Alarms** | | | |
+| `/alarms`<br>`/api/alarms` | GET | List all alarms | None |
+| `/alarms/add`<br>`/api/alarms/add` | POST | Add a new alarm | `hours` (0-23), `minutes` (0-59), `name`, optional `days` (comma-separated 0=Sun..6=Sat) |
+| `/alarms/remove`<br>`/api/alarms/remove` | POST | Remove an alarm | `id` |
+| `/alarms/toggle`<br>`/api/alarms/toggle` | POST | Toggle alarm on/off | `id` |
+| **Media (ADB)** | | | |
+| `/media/power/on`<br>`/api/media/power/on` | POST | Wake up media device | `device` (IP, default `192.168.1.224`) |
+| `/media/power/off`<br>`/api/media/power/off` | POST | Sleep media device | `device` |
+| `/media/next` | POST | Next track | `device` |
+| `/media/previous` | POST | Previous track | `device` |
+| `/media/play`<br>`/media/pause` | POST | Toggle play/pause | `device` |
+| `/media/volume/up` | POST | Volume up | `device` |
+| `/media/volume/down` | POST | Volume down | `device` |
+| `/media/playlist` | POST | Launch playlist on device (ADB intent) | `device`, optional `url` (defaults to webserver `/playlist.m3u`) |
+| **Playlist (m3u file)** | | | |
+| `/playlist/list` | GET | List current m3u playlist | None |
+| `/playlist/add` | POST | Add entry to playlist | `entry` (path) |
+| `/playlist/remove` | POST | Remove entry by index (0-based) | `index` |
+| `/playlist/shuffle` | POST | Shuffle playlist | None |
+| `/playlist/clear` | POST | Clear entire playlist | None |
+| **State** | | | |
+| `/state`<br>`/api/state` | GET | Full state of all Zigbee devices | None |
+| `/state/{device}`<br>`/api/state/{device}` | GET | State of a specific device | `{device}` (friendly name) |
+| `/state/room/{room}`<br>`/api/state/room/{room}` | GET | State of all devices in a room | `{room}` |
+| **Devices & Scenes** | | | |
+| `/device/list`<br>`/api/device/list` | GET | List all devices (from `devices.json`) | None |
+| `/device/{device}/{command}/{value}...` | POST | Control a device (multiple commands can be chained) | `{device}` name, then pairs like `state/on`, `brightness/200`, `color/%23FF5733`, `temperature/300` |
+| `/device/rooms`<br>`/api/device/rooms` | GET | List devices grouped by room | None |
+| `/device/types`<br>`/api/device/types` | GET | List devices grouped by type | None |
+| `/scene/{scene}`<br>`/api/scene/{scene}` | POST | Activate a scene | `{scene}` (scene name) |
 
 
 <br>

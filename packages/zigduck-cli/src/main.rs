@@ -1198,7 +1198,7 @@ fn api_set_timer(
         params.push(("name", n.to_string()));
     }
     let resp = client
-        .get(format!("{}/timers/set", api_url))
+        .post(format!("{}/timers/set", api_url))
         .query(&params)
         .header("Authorization", format!("Bearer {}", password))
         .send()
@@ -1214,7 +1214,7 @@ fn api_set_timer(
 fn api_pause_timer(api_url: &str, password: &str, id: u64) -> Result<()> {
     let client = HttpClient::new();
     let resp = client
-        .get(format!("{}/timers/pause", api_url))
+        .post(format!("{}/timers/pause", api_url))
         .query(&[("id", id.to_string())])
         .header("Authorization", format!("Bearer {}", password))
         .send()
@@ -1230,7 +1230,7 @@ fn api_pause_timer(api_url: &str, password: &str, id: u64) -> Result<()> {
 fn api_resume_timer(api_url: &str, password: &str, id: u64) -> Result<()> {
     let client = HttpClient::new();
     let resp = client
-        .get(format!("{}/timers/resume", api_url))
+        .post(format!("{}/timers/resume", api_url))
         .query(&[("id", id.to_string())])
         .header("Authorization", format!("Bearer {}", password))
         .send()
@@ -1246,7 +1246,7 @@ fn api_resume_timer(api_url: &str, password: &str, id: u64) -> Result<()> {
 fn api_cancel_timer(api_url: &str, password: &str, id: u64) -> Result<()> {
     let client = HttpClient::new();
     let resp = client
-        .get(format!("{}/timers/cancel", api_url))
+        .post(format!("{}/timers/cancel", api_url))
         .query(&[("id", id.to_string())])
         .header("Authorization", format!("Bearer {}", password))
         .send()
@@ -1298,7 +1298,7 @@ fn api_add_alarm(
         }
     }
     let resp = client
-        .get(format!("{}/alarms/add", api_url))
+        .post(format!("{}/alarms/add", api_url))
         .query(&params)
         .header("Authorization", format!("Bearer {}", password))
         .send()
@@ -1314,7 +1314,7 @@ fn api_add_alarm(
 fn api_remove_alarm(api_url: &str, password: &str, id: u64) -> Result<()> {
     let client = HttpClient::new();
     let resp = client
-        .get(format!("{}/alarms/remove", api_url))
+        .post(format!("{}/alarms/remove", api_url))
         .query(&[("id", id.to_string())])
         .header("Authorization", format!("Bearer {}", password))
         .send()
@@ -1330,7 +1330,7 @@ fn api_remove_alarm(api_url: &str, password: &str, id: u64) -> Result<()> {
 fn api_toggle_alarm(api_url: &str, password: &str, id: u64) -> Result<()> {
     let client = HttpClient::new();
     let resp = client
-        .get(format!("{}/alarms/toggle", api_url))
+        .post(format!("{}/alarms/toggle", api_url))
         .query(&[("id", id.to_string())])
         .header("Authorization", format!("Bearer {}", password))
         .send()
