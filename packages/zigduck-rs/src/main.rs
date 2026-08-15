@@ -9,6 +9,7 @@ use rumqttc::{Client, Event, Incoming, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::time;
+use tokio::process::Command as TokioCommand;
 use ducktrace_logger::*;
 use anyhow::{Result, bail};
 
@@ -1032,12 +1033,14 @@ impl ZigduckState {
         match action {
             AutomationAction::Simple(cmd) => {
                 // 🦆 says ⮞ execute shell command with environment
-                let output = std::process::Command::new("sh")
+                let output = TokioCommand::new("sh")
                     .arg("-c")
                     .arg(cmd)
                     .env("AUTOMATION_DEVICE", device_name)
                     .env("AUTOMATION_ROOM", room)
-                    .output()?;
+                    .output()
+                    .await?;
+
 
                 if !output.status.success() {
                     dt_debug!("Shell command failed: {}", String::from_utf8_lossy(&output.stderr));
@@ -1052,12 +1055,13 @@ impl ZigduckState {
                     }
                     "shell" => {
                         if let Some(cmd) = &action_config.command {
-                            let output = std::process::Command::new("sh")
+                            let output = TokioCommand::new("sh")
                                 .arg("-c")
                                 .arg(cmd)
                                 .env("AUTOMATION_DEVICE", device_name)
                                 .env("AUTOMATION_ROOM", room)
-                                .output()?;
+                                .output()
+                                .await?;
 
                             if !output.status.success() {
                                 dt_debug!("Shell command failed: {}", String::from_utf8_lossy(&output.stderr));
@@ -1105,12 +1109,13 @@ impl ZigduckState {
     
         match action {
             AutomationAction::Simple(cmd) => {
-                let output = std::process::Command::new("sh")
+                let output = TokioCommand::new("sh")
                     .arg("-c")
                     .arg(cmd)
                     .env("AUTOMATION_DEVICE", device_name)
                     .env("AUTOMATION_ROOM", room)
-                    .output()?;
+                    .output()
+                    .await?;
                 if !output.status.success() {
                     dt_debug!("Shell command failed: {}", String::from_utf8_lossy(&output.stderr));
                 }
@@ -1124,12 +1129,13 @@ impl ZigduckState {
                     }
                     "shell" => {
                         if let Some(cmd) = &action_config.command {
-                            let output = std::process::Command::new("sh")
+                            let output = TokioCommand::new("sh")
                                 .arg("-c")
                                 .arg(cmd)
                                 .env("AUTOMATION_DEVICE", device_name)
                                 .env("AUTOMATION_ROOM", room)
-                                .output()?;
+                                .output()
+                                .await?;
                             if !output.status.success() {
                                 dt_debug!("Shell command failed: {}", String::from_utf8_lossy(&output.stderr));
                             }
@@ -1635,12 +1641,13 @@ impl ZigduckState {
                     let hue_json = serde_json::to_string(&Value::Object(hue_payload))?;
                     dt_debug!("Hue payload: {}", hue_json);
 
-                    let output = std::process::Command::new("zigduck-cli")
+                    let output = TokioCommand::new("zigduck-cli")
                         .arg("--device")
                         .arg(&device_info.id)
                         .arg("--json")
                         .arg(&hue_json)
-                        .output()?;
+                        .output()
+                        .await?;
 
                     if !output.status.success() {
                         dt_debug!("Hue failed: {}", String::from_utf8_lossy(&output.stderr));
