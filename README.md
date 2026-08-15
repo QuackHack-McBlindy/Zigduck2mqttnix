@@ -5,20 +5,23 @@
 <br>
 
 <a href="https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/images/logo.png">
-  <img src="images/logo.png" alt="Logo" width="300">
+  <img src="images/logo.png" alt="Logo" width="330">
 </a> 
 
-<br>
+<br><br>
 
-Declarative full-stack NixOS (Zigbee) home automation system that's reproducible and deployable.  
+# **Overview**
+
+ 
+Declarative full-stack **NixOS** (Zigbee) home automation system that's reproducible and deployable.  
 Nix for configuration, Rust for responsive async runtime.  
 Under the hood: zigbee2mqtt, Mosquitto, serde_json and adb.   
   
 **Define once, forget forever.**   
 
-Zigduck2mqttnix uses smart defaults, after defining your rooms & devices --   
+**Zigduck2mqttnix** uses smart defaults, after defining your rooms & devices --   
 most users don’t need to write any automations at all.  
-Lights, dimmers, motion sensors - it should all work as expected out of the box.  
+Lights, dimmers, motion sensors - it should all work as expected **out of the box**.  
 Everything is configurable via NixOS options.   
   
 An optional dashboard page is generated from the defined Nix configuration to display customized cards as well as scene activation and device control on-the-fly.   
@@ -42,9 +45,7 @@ An optional dashboard page is generated from the defined Nix configuration to di
           Devices
 ```
 
-<br>
 
-For security reasons, it's highly recommended to serve the dashboard over a reverse proxy *(Nginx, Caddy, Trafik, etc)*.  
 
 <br>
 
@@ -85,6 +86,7 @@ See [DOCS](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/DOCS.
 ```nix
     services.zigduck = {
       enable = true;
+      # for security reasons, it's highly recommended to serve the dashboard over a reverse proxy (Nginx, Caddy, Trafik, etc).  
       dashboard.enable = true;
       dashboard.port = 13336;
       dashboard.passwordFile = config.sops.secrets.dashboard.path;
