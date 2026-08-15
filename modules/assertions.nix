@@ -162,6 +162,33 @@
     in "🦆 duck say ⮞ fuck ❌ Hue Sync Box references non-existent TV '${tv}'. Available TVs: ${toString availableTvs}";
   };
 
+  # --- New assertions ---
+
+  # 1. Validate that excluded devices in no.motion exist
+  noMotionConfig = config.house.zigbee.no.motion or {};
+  noMotionTrigger = noMotionConfig.trigger or {};
+  noMotionAllLightsOff = noMotionTrigger.all.lights.off or {};
+  excludeDevices = noMotionAllLightsOff.exclude or [];
+
+  excludedDevicesExistValidation =
+    map (deviceName: {
+      assertion = deviceExistsByFriendlyName deviceName;
+      message = "🦆 duck say ⮞ fuck ❌ No-motion automation excludes non-existent device '${deviceName}'";
+    }) excludeDevices;
+
+  # 2. Compare no.motion timeout with motion.trigger.lights.duration
+  #    (no.motion.after is in minutes, multiply by 60 to compare with duration in seconds)
+  noMotionTimeoutComparison =
+    let
+      noMotionEnabled = noMotionAllLightsOff.enable or false;
+      noMotionAfter = noMotionAllLightsOff.after or 0;
+      motionDuration = config.house.zigbee.motion.trigger.lights.duration or 0;
+    in
+      optional noMotionEnabled {
+        assertion = (noMotionAfter * 60) > motionDuration;
+        message = "🦆 duck say ⮞ fuck ❌ No-motion timeout (${toString noMotionAfter} min × 60 = ${toString (noMotionAfter * 60)}) must be greater than motion trigger lights duration (${toString motionDuration})";
+      };
+
 in
 {
   config.assertions =
@@ -171,6 +198,7 @@ in
     ++ motionSensorValidations
     ++ mqttValidations
     ++ mqttTriggeredValidations
-    ++ [ syncBoxTvValidation ];
-    
+    ++ [ syncBoxTvValidation ]
+    ++ excludedDevicesExistValidation
+    ++ noMotionTimeoutComparison;
 }

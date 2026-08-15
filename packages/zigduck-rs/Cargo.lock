@@ -2810,13 +2810,14 @@ dependencies = [
 
 [[package]]
 name = "zigduck-rs"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "chrono",
  "clap",
  "colored",
  "ducktrace-logger",
+ "lazy_static",
  "multipart",
  "rand 0.8.5",
  "reqwest",

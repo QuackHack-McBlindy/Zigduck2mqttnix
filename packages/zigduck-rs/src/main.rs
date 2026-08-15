@@ -39,6 +39,8 @@ struct HouseConfig {
     dimmer: DimmerConfig,
     dark_time: DarkTimeConfig,
     //greeting: GreetingConfig,
+    #[serde(default)]
+    no_motion: NoMotionConfig,
     double_click_timeout_ms: Option<u64>,    
 }
 
@@ -68,6 +70,22 @@ struct DarkTimeConfig {
     duration: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NoMotionConfig {
+    enabled: bool,
+    after: u64,
+    exclude: Vec<String>,
+}
+
+impl Default for NoMotionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            after: 180,
+            exclude: Vec::new(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Device {
@@ -217,7 +235,7 @@ struct ZigduckState {
     room_scenes: HashMap<String, Vec<String>>,
     scene_index: Arc<RwLock<HashMap<String, usize>>>,    
     automations: AutomationConfig,
-    motion_tracker: MotionTracker,
+    motion_tracker: Arc<RwLock<MotionTracker>>,
     motion_timers: HashMap<String, tokio::task::JoinHandle<()>>,
     processing_times: HashMap<String, u128>,
     message_counts: HashMap<String, u64>,
@@ -452,7 +470,7 @@ impl ZigduckState {
                 }
                 // 🦆 says ⮞ check conditions
                 if self.check_conditions(&automation.conditions).await {
-                    dt_info!("Triggering MQTT automation: {}", automation.description);
+                    dt_debug!("Triggering MQTT automation: {}", automation.description);
                     for action in &automation.actions {
                         if let Err(e) = self.execute_automation_action_mqtt(action, "mqtt_triggered", "global", topic, payload).await {
                             dt_debug!("Error executing MQTT automation action: {}", e);
@@ -467,11 +485,20 @@ impl ZigduckState {
     async fn start_periodic_checks(&self) {
         let state = self.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60)); // Check every minute
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                state.check_no_motion_global().await;
+            }
+        });
+
+        let state = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
             loop {
                 interval.tick().await;
                 state.check_presence_automations().await;
-                state.check_time_based_automations().await; // Add this too
+                state.check_time_based_automations().await;
             }
         });
     }
@@ -577,11 +604,14 @@ impl ZigduckState {
         for (name, automation) in &self.automations.presence_based {
             if !automation.enable { continue; }
             let all_no_motion = automation.motion_sensors.iter().all(|sensor| {
-                if let Some(last_motion) = self.motion_tracker.last_motion.get(sensor) {
-                    let duration = SystemTime::now().duration_since(*last_motion).unwrap();
-                    duration.as_secs() >= automation.no_motion_duration
-                } else {
-                    false
+                match self.motion_tracker.read() {
+                    Ok(tracker) => tracker
+                        .last_motion
+                        .get(sensor)
+                        .and_then(|last| SystemTime::now().duration_since(*last).ok())
+                        .map(|d| d.as_secs() >= automation.no_motion_duration)
+                        .unwrap_or(false),
+                    Err(_) => false,
                 }
             });
 
@@ -595,8 +625,10 @@ impl ZigduckState {
         }
     }
 
-    fn update_motion_tracker(&mut self, sensor_name: &str) {
-        self.motion_tracker.last_motion.insert(sensor_name.to_string(), SystemTime::now());
+    fn update_motion_tracker(&self, sensor_name: &str) {
+        if let Ok(mut tracker) = self.motion_tracker.write() {
+            tracker.last_motion.insert(sensor_name.to_string(), SystemTime::now());
+        } else { dt_warning!("Failed to lock motion tracker for update"); }
     }
 
 
@@ -773,9 +805,7 @@ impl ZigduckState {
                         }
                     }
                 })
-            } else {
-                None
-            }
+            } else { None }
         } else {
             // fallback to env vars
             if let (Ok(ip), Ok(key_file)) = (std::env::var("HUE_BRIDGE_IP"), std::env::var("HUE_API_KEY_FILE")) {
@@ -881,9 +911,9 @@ impl ZigduckState {
                 }
             });
 
-        let motion_tracker = MotionTracker {
+        let motion_tracker = Arc::new(RwLock::new(MotionTracker {
             last_motion: HashMap::new(),
-        };
+        }));
 
         let dashboard_config_path = std::env::var("DASHBOARD_CONFIG_FILE")
             .unwrap_or_else(|_| "/etc/zigduck/dashboard.json".to_string());
@@ -1420,20 +1450,110 @@ impl ZigduckState {
     fn has_recent_motion_in_room(&self, room: &str) -> bool {
         let motion_timeout = Duration::from_secs(300); // 5 minutes
 
-        for (sensor_name, last_motion) in &self.motion_tracker.last_motion {
-            if let Some(device) = self.devices.get(sensor_name) {
-                if device.room == room {
-                    if let Ok(elapsed) = SystemTime::now().duration_since(*last_motion) {
-                        if elapsed < motion_timeout {
-                            return true;
+        if let Ok(tracker) = self.motion_tracker.read() {
+            return tracker.last_motion.iter().any(|(sensor_name, last_motion)| {
+                if let Some(device) = self.devices.get(sensor_name) {
+                    if device.room == room {
+                        if let Ok(elapsed) = SystemTime::now().duration_since(*last_motion) {
+                            return elapsed < motion_timeout;
                         }
                     }
                 }
-            }
+                false
+            });
         }
         false
     }
+    
+    fn get_motion_sensor_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .devices
+            .iter()
+            .filter(|(_, d)| d.device_type.contains("motion"))
+            .map(|(name, _)| name.clone())
+            .collect();
 
+        if let Ok(tracker) = self.motion_tracker.read() {
+            for sensor in tracker.last_motion.keys() {
+                if self.devices.contains_key(sensor) && !names.contains(sensor) {
+                    names.push(sensor.clone());
+                }
+            }
+        }
+        names
+    }
+    
+    async fn all_lights_off_except(&self, exclude: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        for (device_id, device) in &self.devices {
+            if exclude.iter().any(|e| e == device_id || e == &device.id) {
+                dt_debug!("skipping excluded device: {}", device_id);
+                continue;
+            }
+
+            match device.device_type.as_str() {
+                "light" => {
+                    let message = json!({ "state": "OFF" });
+                    let topic = format!("{}/{}/set", self.mqtt_base_topic, device_id);
+                    if let Err(e) = self.mqtt_publish(&topic, &message.to_string()).await {
+                        dt_warning!("Failed to turn off {}: {}", device_id, e);
+                    }
+                }
+                "hue_light" => {
+                    if let Some(hue_id) = device.hue_id {
+                        if let Some(hue_client) = &self.hue_client {
+                            let payload = json!({ "on": false });
+                            if let Err(e) = hue_client.set_light_state(hue_id, payload).await {
+                                dt_warning!("failed to turn off Hue light {}: {}", device_id, e);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+    
+    
+    async fn check_no_motion_global(&self) {
+        if !self.config.no_motion.enabled {
+            return;
+        }
+    
+        let sensors = self.get_motion_sensor_names();
+        if sensors.is_empty() {
+            dt_debug!("no motion sensors found; skipping global no-motion check");
+            return;
+        }
+    
+        let after_seconds = self.config.no_motion.after * 60;
+        let now = SystemTime::now();
+    
+        let all_no_motion = match self.motion_tracker.read() {
+            Ok(tracker) => sensors.iter().all(|sensor| {
+                tracker
+                    .last_motion
+                    .get(sensor)
+                    .and_then(|last| now.duration_since(*last).ok())
+                    .map(|d| d.as_secs() >= after_seconds)
+                    .unwrap_or(false)
+            }),
+            Err(_) => false,
+        };
+    
+        if all_no_motion {
+            dt_info!(
+                "no motion for {} minutes on all sensors; turning off lights (excluding {:?})",
+                self.config.no_motion.after,
+                self.config.no_motion.exclude
+            );
+    
+            if let Err(e) = self.all_lights_off_except(&self.config.no_motion.exclude).await {
+                dt_warning!("failed to turn off all lights: {}", e);
+            }
+        }
+    }
+    
     // 🦆 says ⮞ unified devices controller (hue api/zigbee2mqtt)
     fn handle_device_command<'a>(
         &'a self,
@@ -1932,26 +2052,6 @@ impl ZigduckState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 🦆 says ⮞ get configuration from env var
-    let mqtt_broker = std::env::var("MQTT_BROKER").unwrap_or_else(|_| "192.168.1.211".to_string());
-    let mqtt_user = std::env::var("MQTT_USER").unwrap_or_else(|_| "mqtt".to_string());
-    // 🦆 says ⮞ Password: from env var, or from file (configurable path), or empty
-    let mqtt_password = std::env::var("MQTT_PASSWORD")
-        .or_else(|_| {
-            let password_file = std::env::var("MQTT_PASSWORD_FILE")
-                .unwrap_or_else(|_| "/run/secrets/mosquitto".to_string());
-            std::fs::read_to_string(&password_file)
-                .map(|s| s.trim().to_string())
-                .map_err(|e| {
-                    eprintln!("[🦆📜] ❌ERROR❌ ⮞ Failed to read MQTT password from {}: {}", password_file, e);
-                    e
-                })
-        })
-        .unwrap_or_else(|_| {
-            eprintln!("[🦆📜] ⚠️ WARNING ⚠️ ⮞ No MQTT password set, proceeding with empty password");
-            "".to_string()
-        });
-
     let debug = std::env::var("DEBUG").is_ok();
 
     // 🦆 says ⮞ static state directory path
@@ -1963,7 +2063,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let log_path = format!("{}/zigduck.log", state_dir);
     dt_setup(Some(log_path.as_str()), None);
-
 
     // 🦆 says ⮞ Get automations config and dark time setting
     let automations_file = std::env::var("AUTOMATIONS_FILE")

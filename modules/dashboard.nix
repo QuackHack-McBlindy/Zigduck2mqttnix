@@ -8,35 +8,21 @@
 let
   cfg = config.services.zigduck;
   house = config.house;
-  zigduckDir = cfg.stateDir;
   zigduckPkgs = self.inputs.zigduck2mqttnix.packages.${pkgs.system}; 
 
-
-  login = builtins.readFile ./../static/html/login.html;
-  javascript = builtins.readFile ./../static/js/script.js;
   cards = import ./cards.nix { inherit lib pkgs; };
   generateCardStyle = cards.generateCardStyle;
   statusCardThemes = cards.statusCardThemes;
 
   css = {
     global  = builtins.readFile ./../static/css/global.css;
-    home    = builtins.readFile ./../static/css/home.css;
     devices = builtins.readFile ./../static/css/devices.css;
     scenes  = builtins.readFile ./../static/css/scenes.css;
   };
 
+  tvConfig = builtins.trace "TV config: ${builtins.toJSON house.tv}" house.tv;
 
-
-  tvConfig = builtins.trace "TV config: ${builtins.toJSON config.house.tv}" config.house.tv;
-
-  zigbeeDevices = config.house.zigbee.devices;
-  lightDevices = lib.filterAttrs (_: device: 
-    device.type == "light" || device.type == "hue_light"
-  ) zigbeeDevices;
-
-  outletDevices = lib.filterAttrs (_: device: 
-    device.type == "outlet" || device.type == "pusher"
-  ) zigbeeDevices;
+  zigbeeDevices = house.zigbee.devices;
 
   allRoomDevices = lib.filterAttrs (_: device: 
     device.type == "light" || 
@@ -45,22 +31,6 @@ let
     device.type == "pusher"
   ) zigbeeDevices;
   
-  normalizedDeviceMap = lib.mapAttrs' (id: device:
-    lib.nameValuePair (lib.toLower device.friendly_name) device.friendly_name
-  ) zigbeeDevices;
-
-  deviceList = builtins.attrNames normalizedDeviceMap;
-
-  sceneLight = {state, brightness ? 200, hex ? null, temp ? null}:
-    let
-      colorValue = if hex != null then { inherit hex; } else null;
-    in
-    {
-      inherit state brightness;
-    } // (if colorValue != null then { color = colorValue; } else {})
-      // (if temp != null then { color_temp = temp; } else {});
-
-
   iOSmanifest = pkgs.writeText "manifest.json" ''
     {
       "name": "🦆'Dash",
@@ -85,66 +55,22 @@ let
   '';
 
 
-  scenes = config.house.zigbee.scenes; 
-  sceneConfig = pkgs.writeText "scene-config.json" (builtins.toJSON {
-    scenes = scenes;
-  });
-  
-
-  makeCommand = device: settings:
-    let
-      json = builtins.toJSON settings;
-    in
-      ''
-      mqtt_pub -t "${config.house.zigbee.mosquitto.baseTopic}/''${device}/set" -m '''${json}'
-      '';
-      
-  sceneCommands = lib.mapAttrs
-    (sceneName: sceneDevices:
-      lib.mapAttrs (device: settings: makeCommand device settings) sceneDevices
-    ) scenes;  
+  scenes = house.zigbee.scenes; 
 
   byRoom = lib.foldlAttrs (acc: id: dev:
     lib.recursiveUpdate acc {
       ${dev.room} = (acc.${dev.room} or []) ++ [ id ];
     }) {} zigbeeDevices;
 
-
-  byType = lib.foldlAttrs (acc: id: dev:
-    lib.recursiveUpdate acc {
-      ${dev.type} = (acc.${dev.type} or []) ++ [ id ];
-    }) {} zigbeeDevices;
-
-  groupConfig = lib.mapAttrs' (room: ids: {
-    name = room;
-    value = {
-      friendly_name = room;
-      devices = map (id: 
-        let dev = zigbeeDevices.${id};
-        in "${id}/${toString dev.endpoint}"
-      ) ids;
-    };
-  }) byRoom;
-
-  tvDevicesJson = pkgs.writeText "tv-devices.json" (builtins.toJSON config.house.tv);
-
-  deviceConfig = lib.mapAttrs (id: dev: {
-    friendly_name = dev.friendly_name;
-  }) zigbeeDevices;
-
-  ieeeToFriendly = lib.mapAttrs (ieee: dev: dev.friendly_name) zigbeeDevices;
-  mappingJSON = builtins.toJSON ieeeToFriendly;
-  mappingFile = pkgs.writeText "ieee-to-friendly.json" mappingJSON;
-
   pageFilesAndCss = let
-    pages = config.house.dashboard.pages;
+    pages = house.dashboard.pages;
   in lib.concatStrings (lib.mapAttrsToList (pageId: page: 
-    if page.css != "" then "echo '${page.css}' > $WORKDIR/page-${pageId}.css;" else ""
+    if page.css != "" then "echo '${page.css}' > $DASHBOARD_DIR/page-${pageId}.css;" else ""
   ) pages);
 
 
   statusCardsHtml = let
-    enabledCards = lib.filterAttrs (name: card: card.enable) config.house.dashboard.statusCards;    
+    enabledCards = lib.filterAttrs (name: card: card.enable) house.dashboard.statusCards;    
     cardsList = lib.mapAttrsToList (name: card: card // { _name = name; }) enabledCards;
     groupedCards = lib.groupBy (card: card.group or "default") cardsList;    
     groups = lib.attrNames groupedCards;
@@ -218,7 +144,7 @@ let
     lib.concatStrings (lib.mapAttrsToList generateGroupHtml groupedCards);
      
   customTabsHtml = let
-    pages = config.house.dashboard.pages;
+    pages = house.dashboard.pages;
   in if pages == {} then "" else lib.concatStrings (lib.mapAttrsToList (id: page: 
     let
       iconHtml = if lib.hasPrefix "http" page.icon then
@@ -232,7 +158,7 @@ let
   ) pages);
 
 
-  zigbeeScenes = config.house.zigbee.scenes;
+  zigbeeScenes = house.zigbee.scenes;
   zigbeeDevicesIcon = lib.mapAttrs' (id: device: {
     name = device.friendly_name;
     value = device.icon;
@@ -292,16 +218,6 @@ let
       </div>''
   ) zigbeeScenes);
   
-  devicesJson = pkgs.writeTextFile {
-    name = "devices.json";
-    text = builtins.toJSON config.house.zigbee.devices;
-  };
-
-  roomsJson = pkgs.writeTextFile {
-    name = "rooms.json";
-    text = builtins.toJSON config.house.rooms;
-  };
-
   roomDeviceMappings = lib.concatMapStrings (room: 
     let roomLights = devicesByRoom.${room} or [];
     in if roomLights != [] then
@@ -316,34 +232,17 @@ let
     else ""
   ) sortedRooms;
 
-  statusCards = ''
-    <div class="status-cards">
-      <h3>🦆 STATUS 🦆</h3>
-      <div class="card unified-status-card" id="unifiedStatusCard">
-        <div class="card-header">
-          <div class="card-title" id="statusCardTitle">Status</div>
-          <i class="fas fa-info-circle" id="statusCardIcon" style="color: #2ecc71;"></i>
-        </div>
-        <div class="card-value" id="statusCardValue">--</div>
-        <div class="card-details" id="statusCardDetails">
-          <i class="fas fa-clock"></i>
-          <span id="statusCardTime">Waiting for data</span>
-        </div>
-      </div>
-    </div>
-  '';
-  
   roomIcons = lib.mapAttrs' (name: room: {
     name = name;
     value = room.icon;
-  }) config.house.rooms;
+  }) house.rooms;
   
   devicesWithId = lib.mapAttrsToList (id: value: { inherit id; } // value) allRoomDevices;
   devicesByRoom = lib.groupBy (device: device.room) devicesWithId;
   sortedRooms = lib.sort (a: b: a < b) (lib.attrNames devicesByRoom);
   
   roomControlsHtml = let
-    devicesData = config.house.zigbee.devices;
+    devicesData = house.zigbee.devices;
     
     isDeviceOn = deviceId: 
       let device = devicesData.${deviceId} or {};
@@ -399,193 +298,8 @@ let
     </div>
   '';
 
-  
-  # SERVER CONFIGURATION
-  httpServer = pkgs.writeShellScriptBin "serve-dashboard" ''
-    HOST=''${1:-0.0.0.0}
-    PORT=''${2:-13337}
-    CERT=''${3:-}
-    KEY=''${4:-}
-    WORKDIR=$(mktemp -d)
-
-    # symlink html files & manifest
-    ln -sf /etc/zigduck/login.html $WORKDIR/ 
-    ln -sf /etc/zigduck/script.js $WORKDIR/     
-    ln -sf /etc/zigduck/index.html $WORKDIR/
-    ln -sf /etc/static/tv.html $WORKDIR/
-    ln -sf /etc/zigduck/site.webmanifest $WORKDIR/
-            
-    # & favicons
-    ln -sf /etc/zigduck/favicon-32x32.png $WORKDIR/
-    ln -sf /etc/zigduck/favicon-16x16.png $WORKDIR/
-    ln -sf /etc/zigduck/favicon.ico $WORKDIR/
-    ln -sf /etc/zigduck/apple-touch-icon.png $WORKDIR/
-    ln -sf /etc/zigduck/android-chrome-512x512.png $WORKDIR/
-    ln -sf /etc/zigduck/android-chrome-192x192.png $WORKDIR/
-
-    # symlink json files
-    ln -sf /etc/zigduck/config.json $WORKDIR/    
-    ln -sf /etc/zigduck/devices.json $WORKDIR/
-    ln -sf /etc/zigduck/rooms.json $WORKDIR/
-    ln -sf /etc/zigduck/tv.json $WORKDIR/
-    ln -sf ${config.services.zigduck.stateDir}/state.json $WORKDIR/  
-    ln -sf /etc/static/epg.json $WORKDIR/   
-
-
-    # symlink all status card JSON files
-    ln -sf /etc/zigduck/status-cards-config.json $WORKDIR/   
-    ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: card: 
-      if card.enable then "ln -sf ${card.filePath} $WORKDIR/${builtins.baseNameOf card.filePath};" else ""
-    ) config.house.dashboard.statusCards)}
-
-    # process page files from dashboard configuration
-    ${lib.concatStringsSep "\n" (lib.flatten (lib.mapAttrsToList (_: page:
-      lib.mapAttrsToList (name: source: 
-        if lib.isString source then
-          "ln -sf ${source} $WORKDIR/${name}"
-        else
-          "ln -sf ${toString source} $WORKDIR/${name}"
-      ) (page.files or {})
-    ) config.house.dashboard.pages))}
-
-    # CSS files only
-    ${pageFilesAndCss}
-
-    # TV icons
-    mkdir -p $WORKDIR/tv-icons
-    ${lib.concatMapStrings (tvName: 
-        let tv = tvConfig.${tvName};
-        in lib.concatMapStrings (channelId: 
-            let channel = tv.channels.${channelId};
-            in "ln -sf ${channel.icon} $WORKDIR/tv-icons/${channelId}.png\n"
-        ) (lib.attrNames tv.channels)
-    ) (lib.attrNames tvConfig)}
-  
-
-    cat > $WORKDIR/simple_server.py << 'EOF'
-import http.server
-import socketserver
-import os
-import urllib.parse
-import json
-import hashlib
-import sys
-import time
-import ssl
-from pathlib import Path
-
-password_file = "${config.house.dashboard.passwordFile}"
-with open(password_file, "r") as f:
-    PASSWORD = f.read().strip()
-
-sessions = {}
-
-class SimpleAuthHandler(http.server.SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        self.directory = os.getcwd()
-        super().__init__(*args, directory=self.directory, **kwargs)
-    
-    def do_GET(self):
-        auth_cookie = self.headers.get('Cookie', "")
-        is_authenticated = False        
-        for cookie in auth_cookie.split(';'):
-            cookie = cookie.strip()
-            if cookie.startswith('auth_token='):
-                token = cookie.split('auth_token=')[1]
-                if token in sessions:
-                    is_authenticated = True
-        
-        if self.path in ['/login', '/login.html', '/submit']:
-            return super().do_GET()
-        
-        if not is_authenticated:
-            self.send_response(302)
-            self.send_header('Location', '/login.html')
-            self.end_headers()
-            return
-        
-        return super().do_GET()
-    
-    def do_POST(self):
-        if self.path == '/submit':
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length).decode('utf-8')
-            parsed_data = urllib.parse.parse_qs(post_data)
-            password = parsed_data.get('password', [""])[0]
-            
-            if password == PASSWORD:
-                import uuid
-                token = str(uuid.uuid4())
-                sessions[token] = time.time()
-                
-                self.send_response(302)
-                self.send_header('Location', '/')
-                self.send_header('Set-Cookie', f'auth_token={token}; Path=/; HttpOnly; SameSite=Lax')
-                self.send_header('Set-Cookie', f'api_password={PASSWORD}; Path=/; SameSite=Lax')   
-                self.end_headers()
-                print("Login successful!")
-            else:
-                self.send_response(401)
-                self.send_header('Content-type', 'text/html')
-                self.end_headers()
-                self.wfile.write(b'<html><body>Access denied. <a href="/login.html">Try again</a></body></html>')
-                print("Login failed!")
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, format, *args):
-        pass
-
-if __name__ == '__main__':
-    os.chdir(os.path.dirname(__file__))    
-    port = int(os.environ.get('PORT', 13337))
-    
-    cert_file = os.environ.get('CERT_FILE', "")
-    key_file = os.environ.get('KEY_FILE', "")
-    
-    httpd = socketserver.TCPServer(("", port), SimpleAuthHandler)
-    
-    ssl_context = None
-    if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file):
-        try:
-            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            ssl_context.load_cert_chain(cert_file, key_file)
-            
-            httpd.socket = ssl_context.wrap_socket(httpd.socket, server_side=True)
-            print(f"🦆 HTTPS server started on https://0.0.0.0:{port}")
-            
-        except Exception as e:
-            print(f"🦆 SSL setup failed: {e}, falling back to HTTP")
-            print(f"🦆 HTTP server started on http://0.0.0.0:{port}")
-    else:
-        print(f"🦆 No SSL certificates found, starting HTTP server on http://0.0.0.0:{port}")
-        print(f"🦆 Cert file: {cert_file}, Key file: {key_file}")
-    
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        httpd.shutdown()
-EOF
-
-    export PORT=$PORT
-    export CERT_FILE="$CERT"
-    export KEY_FILE="$KEY"
-    cd $WORKDIR
-    
-    if [ -n "$CERT" ] && [ -n "$KEY" ]; then
-        echo "🦆 Starting SECURE dashboard server on https://$HOST:$PORT"
-    else
-        echo "🦆 Starting INSECURE dashboard server on http://$HOST:$PORT"
-        echo "🦆 Warning: No SSL certificates provided, audio streaming may not work on mobile!"
-    fi
-    
-    echo "🦆 Starting dashboard server on http://$HOST:$PORT"
-    ${pkgs.python3}/bin/python3 simple_server.py
-  '';
-
   customPagesHtml = let
-    pages = config.house.dashboard.pages;
+    pages = house.dashboard.pages;
   in if pages == {} then "" else lib.concatStrings (lib.mapAttrsToList (id: page: 
     let
       cssLink = if page.css != "" then ''<link rel="stylesheet" href="/page-${id}.css">'' else "";
@@ -640,7 +354,7 @@ EOF
         
     </head>
     <body>
-        <div class="container">    
+        <div class="container">
             <div id="mqttStatus" style="position: fixed; top: 10px; right: 10px; z-index: 1000; 
                  background: rgba(0,0,0,0.8); color: white; padding: 5px 10px; border-radius: 5px;">
                  ...
@@ -757,7 +471,18 @@ EOF
         <div class="notification hidden" id="notification"></div>
      
         <script>
-
+            if (typeof window.showNotification !== 'function') {
+                window.showNotification = function(message, type = 'info') {
+                    console.log(`[''${type.toUpperCase()}] ''${message}`);
+                    const el = document.getElementById('notification');
+                    if (el) {
+                        el.textContent = message;
+                        el.className = 'notification show';
+                        clearTimeout(el._hideTimeout);
+                        el._hideTimeout = setTimeout(() => el.className = 'notification hidden', 3000);
+                    }
+                };
+            }
             // 🦆 says ⮞ load Chart.js if needed
             function loadChartJS() {
               return new Promise((resolve) => {
@@ -854,7 +579,7 @@ EOF
                 // 🦆 says ⮞ mqtt
                 let client = null;
                 
-                const brokerUrl = 'ws://${config.house.zigbee.mosquitto.host}:9001';              
+                const brokerUrl = 'ws://${house.zigbee.mosquitto.host}:9001';              
                 const statusElement = document.getElementById('connectionStatus');
                 const notification = document.getElementById('notification');
         
@@ -1376,7 +1101,7 @@ EOF
                     }
                     
                     const options = {
-                        username: '${config.house.zigbee.mosquitto.username}',
+                        username: '${house.zigbee.mosquitto.username}',
                         password: password,
                         clientId: 'web-dashboard-' + Math.random().toString(16).substring(2, 10)
                     };
@@ -1392,7 +1117,7 @@ EOF
                             statusElement.className = 'connection-status status-connected';
                             statusElement.innerHTML = '<i class="fas fa-plug"></i><span>🟢</span>';
                             
-                            client.subscribe('${config.house.zigbee.mosquitto.baseTopic}/#', function(err) {
+                            client.subscribe('${house.zigbee.mosquitto.baseTopic}/#', function(err) {
                                 if (!err) {
                                     showNotification('Subscribed to all devices', 'success');
                                 }
@@ -1413,12 +1138,12 @@ EOF
                             const deviceName = topicParts[1];
 
                             // 🦆 says ⮞ handle TV channel updates
-                            if (topic.startsWith('${config.house.zigbee.mosquitto.baseTopic}/tv/') && topic.endsWith('/channel')) {
+                            if (topic.startsWith('${house.zigbee.mosquitto.baseTopic}/tv/') && topic.endsWith('/channel')) {
                                 try {
                                     const data = JSON.parse(message.toString());
                                     const deviceIp = topicParts[2];
                                     console.log('TV channel update:', deviceIp, data);
-                                    const tvConfig = ${builtins.toJSON config.house.tv};
+                                    const tvConfig = ${builtins.toJSON house.tv};
                                     const tvDevice = Object.entries(tvConfig).find(([name, config]) => 
                                         config.ip === deviceIp
                                     );
@@ -1532,7 +1257,7 @@ EOF
                     const statusText = data.state === 'ON' ? 'On • Connected' : 'Off • Connected';
                     document.getElementById('currentDeviceStatus').textContent = statusText;
                     
-                    const topic = `${config.house.zigbee.mosquitto.baseTopic}/''${selectedDevice}`;
+                    const topic = `${house.zigbee.mosquitto.baseTopic}/''${selectedDevice}`;
                     renderMessage(data, topic);
                     
                     console.log('Device icon:', deviceIcons[selectedDevice]);
@@ -1542,7 +1267,7 @@ EOF
                       
                 function updateDeviceIcon(deviceName) {
                     console.log('updateDeviceIcon called for:', deviceName);
-                    const icon = deviceIdToIcon[deviceName] || deviceIcons[deviceName] || "mdi:duck";
+                    const icon = deviceIcons[deviceName] || "mdi:duck";
                     console.log('Resolved icon for', deviceName, ':', icon);
                     const iconName = icon.replace("mdi:", "");
                     const iconElement = document.getElementById('currentDeviceIcon');
@@ -1572,7 +1297,7 @@ EOF
                         connectToMQTT();
                         setTimeout(() => {
                             if (window.mqttClient && window.mqttClient.connected) {
-                                window.mqttClient.publish(`${config.house.zigbee.mosquitto.baseTopic}/device_command/''${deviceId}`, JSON.stringify(command));
+                                window.mqttClient.publish(`${house.zigbee.mosquitto.baseTopic}/device_command/''${deviceId}`, JSON.stringify(command));
                             } else {
                                 showNotification('Still not connected to MQTT', 'error');
                             }
@@ -1580,7 +1305,7 @@ EOF
                         return;
                     }
 
-                    const topic = `${config.house.zigbee.mosquitto.baseTopic}/device_command/''${deviceId}`;
+                    const topic = `${house.zigbee.mosquitto.baseTopic}/device_command/''${deviceId}`;
                     client.publish(topic, JSON.stringify(command), function(err) {
                         if (err) {
                             showNotification('Failed to send command', 'error');
@@ -2308,7 +2033,7 @@ EOF
                         document.querySelectorAll('.scene-item').forEach(scene => {
                             scene.addEventListener('click', () => {
                                 const sceneName = scene.getAttribute('data-scene');
-                                const topic = `${config.house.zigbee.mosquitto.baseTopic}/scene/''${sceneName}`;
+                                const topic = `${house.zigbee.mosquitto.baseTopic}/scene/''${sceneName}`;
                                 const message = "{}";
                                 client.publish(topic, message);
                                 console.log(`Publishing to ''${topic}`);
@@ -2325,7 +2050,7 @@ EOF
                     });
                 }
                 
-                const API_BASE = `http://''${window.location.hostname}:9815`;
+                const API_BASE = `http://''${window.location.hostname}:${toString cfg.dashboard.port}`;
                              
                 const apiEndpoints = {
                   async checkHealth() {
@@ -2349,6 +2074,67 @@ EOF
 
 in {
 
+  system.activationScripts.zigduck-dashboard = {
+    deps = [ "users" ];
+    text = ''  
+      #!/usr/bin/env bash
+      DASHBOARD_DIR="${cfg.stateDir}/dashboard"
+      mkdir -p "$DASHBOARD_DIR"
+      chown zigduck:zigduck "$DASHBOARD_DIR"
+      
+      # symlink html files & manifest
+      ln -sf /etc/zigduck/login.html $DASHBOARD_DIR/ 
+      ln -sf /etc/zigduck/script.js $DASHBOARD_DIR/     
+      ln -sf /etc/zigduck/index.html $DASHBOARD_DIR/
+      ln -sf /etc/static/tv.html $DASHBOARD_DIR/
+      ln -sf /etc/zigduck/site.webmanifest $DASHBOARD_DIR/
+              
+      # & favicons
+      ln -sf /etc/zigduck/favicon-32x32.png $DASHBOARD_DIR/
+      ln -sf /etc/zigduck/favicon-16x16.png $DASHBOARD_DIR/
+      ln -sf /etc/zigduck/favicon.ico $DASHBOARD_DIR/
+      ln -sf /etc/zigduck/apple-touch-icon.png $DASHBOARD_DIR/
+      ln -sf /etc/zigduck/android-chrome-512x512.png $DASHBOARD_DIR/
+      ln -sf /etc/zigduck/android-chrome-192x192.png $DASHBOARD_DIR/
+  
+      # symlink json files
+      ln -sf /etc/zigduck/config.json $DASHBOARD_DIR/    
+      ln -sf /etc/zigduck/devices.json $DASHBOARD_DIR/
+      ln -sf /etc/zigduck/rooms.json $DASHBOARD_DIR/
+      ln -sf /etc/zigduck/tv.json $DASHBOARD_DIR/
+      ln -sf ${cfg.stateDir}/state.json $DASHBOARD_DIR/  
+      ln -sf /etc/static/epg.json $DASHBOARD_DIR/   
+        
+      ln -sf /etc/zigduck/status-cards-config.json $DASHBOARD_DIR/   
+      ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: card: 
+        if card.enable then "ln -sf ${card.filePath} $DASHBOARD_DIR/${builtins.baseNameOf card.filePath};" else ""
+      ) config.house.dashboard.statusCards)}
+  
+      # process page files from dashboard configuration
+      ${lib.concatStringsSep "\n" (lib.flatten (lib.mapAttrsToList (_: page:
+        lib.mapAttrsToList (name: source: 
+          if lib.isString source then
+            "ln -sf ${source} $DASHBOARD_DIR/${name}"
+          else
+            "ln -sf ${toString source} $DASHBOARD_DIR/${name}"
+        ) (page.files or {})
+      ) house.dashboard.pages))}
+  
+      # CSS files only
+      ${pageFilesAndCss}
+  
+      # TV icons
+      mkdir -p $DASHBOARD_DIR/tv-icons
+      ${lib.concatMapStrings (tvName: 
+          let tv = tvConfig.${tvName};
+          in lib.concatMapStrings (channelId: 
+              let channel = tv.channels.${channelId};
+              in "ln -sf ${channel.icon} $DASHBOARD_DIR/tv-icons/${channelId}.png\n"
+          ) (lib.attrNames tv.channels)
+      ) (lib.attrNames tvConfig)}
+    '';
+  };  
+
   networking.firewall.allowedTCPPorts = [ cfg.dashboard.port ];
   
   environment.etc."zigduck/index.html" = {
@@ -2369,19 +2155,19 @@ in {
   environment.etc."devices.json".source =
     pkgs.writeTextFile {
       name = "devices.json";
-      text = builtins.toJSON config.house.zigbee.devices;
+      text = builtins.toJSON house.zigbee.devices;
     };
 
   environment.etc."zigduck/rooms.json".source =
     pkgs.writeTextFile {
       name = "rooms.json";
-      text = builtins.toJSON config.house.rooms;
+      text = builtins.toJSON house.rooms;
     };
   
   environment.etc."zigduck/tv.json".source =
     pkgs.writeTextFile {
       name = "tv.json";
-      text = builtins.toJSON config.house.tv;
+      text = builtins.toJSON house.tv;
     };
 
   environment.etc."zigduck/favicon-32x32.png".source = ./../static/icons/favicon-32x32.png;
@@ -2393,45 +2179,4 @@ in {
 
   environment.etc."zigduck/site.webmanifest".source = iOSmanifest;
 
-  systemd.services = lib.mkIf cfg.dashboard.enable {
-    zigduck-dashboard = {
-      description = "Zigduck dashboard Service";
-      after = [ "network.target" "zigduck.service" ];
-      wantedBy = [ "multi-user.target" ];
-
-      serviceConfig = {
-        Type = "simple";
-        ExecStart = ''${httpServer}/bin/serve-dashboard ${toString cfg.dashboard.host} ${toString cfg.dashboard.port}'';
-        RuntimeDirectoryMode = "0755";
-        Restart = "on-failure";
-        RestartSec = "5s";
-        # Hardening
-        NoNewPrivileges = true;
-        PrivateTmp = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        ReadOnlyPaths = [
-          "/etc"
-          "${config.services.zigduck.stateDir}"
-          (builtins.toString config.house.dashboard.passwordFile)
-        ];
-
-        Environment = let
-          env = {
-            MQTT_BROKER = cfg.broker;
-            MQTT_USER = cfg.user;
-            MQTT_PASSWORD_FILE = cfg.passwordFile;
-            ZIGDUCK_CONFIG = cfg.configFile;
-            STATE_DIR = cfg.stateDir;
-            DT_LOG_LEVEL = "INFO";
-            DT_LOG_FILE = cfg.stateDir + "/zigduck.log";
-            PATH = "/run/current-system/sw/bin:/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:/run/current-system/sw/sbin";
-            HOME = cfg.stateDir;
-          } // optionalAttrs cfg.debug { DEBUG = "1"; }
-            // optionalAttrs (cfg.api.passwordFile != null) { API_PASSWORD_FILE = cfg.api.passwordFile; }
-            // cfg.extraEnv;
-        in mapAttrsToList (name: value: "${name}=${value}") env;
-      };
-    };  
-
-  };}
+  }

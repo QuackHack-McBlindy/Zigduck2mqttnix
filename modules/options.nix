@@ -16,8 +16,7 @@
   jsonFormat = pkgs.formats.json { };
 
 in {
-    imports = [ ./zigduck.nix ./assertions.nix ./helpers.nix ];
-    
+
     options.house = {
       https = {
         urlFile = lib.mkOption {
@@ -31,6 +30,7 @@ in {
           default = "";
         };
       };  
+      
       # set media root & the rest is overrides
       media = with lib; {
         root = mkOption {
@@ -98,13 +98,7 @@ in {
       };    
           
       # dashboard configuraiton
-      dashboard = {
-        passwordFile = lib.mkOption {
-          type = lib.types.path;
-          description = "Passwordfile for the dashboard API";
-          default = "";
-        };
-      
+      dashboard = {      
         pages = lib.mkOption {
           type = lib.types.attrsOf (lib.types.submodule {
             options = {
@@ -571,6 +565,9 @@ in {
               enable = lib.mkEnableOption "Enable Zigbee motion handling" // {
                 default = true;
               };
+              when.dark.enable = lib.mkEnableOption "Enable Zigbee motion handling" // {
+                default = true;
+              };
               trigger = lib.mkOption {
                 type = lib.types.submodule {
                   options = {
@@ -605,6 +602,43 @@ in {
           };
           default = {};
         }; 
+
+        zigbee.no.motion = lib.mkOption {
+          type = lib.types.submodule {
+            options = {
+              trigger.all = lib.mkOption {
+                type = lib.types.submodule {
+                  options = {
+
+                    lights.off = lib.mkOption {
+                      description = "No motion-triggered lighting behavior";
+                      type = lib.types.submodule {
+                        options = {
+                          enable = lib.mkEnableOption "Enable Zigbee motion handling" // {
+                            default = false;
+                          };
+                          after = lib.mkOption {
+                            type = lib.types.int;
+                            default = 180;
+                            description = "Time in minutes without motion that trigger all lights off.";
+                          };
+                          exclude = lib.mkOption {
+                            type = lib.types.listOf lib.types.str;
+                            default = [];                    
+                            description = "List of devices (strings) to exclude, leaving them in current state.";
+                          };
+                        };
+                      };
+                      default = {};
+                    };
+                  };
+                };
+                default = {};
+              };
+            };
+          };
+          default = {};
+        };
  
         # automations configuration
         zigbee.automations = mkOption {

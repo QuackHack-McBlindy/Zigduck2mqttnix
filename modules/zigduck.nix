@@ -6,44 +6,13 @@
   ...
 } : with lib;
 let
-  cfg = config.services.zigduck;
-  
+  cfg = config.services.zigduck;  
   house = config.house;
-  zigduckDir = cfg.stateDir;
-  zigduckPkgs = self.inputs.zigduck2mqttnix.packages.${pkgs.system};  
+  zigduckPkgs = self.inputs.zigduck2mqttnix.packages.${pkgs.system};
 
-  imports = [ ./dashboard.nix ];
-
-  zigbeeDevices = config.house.zigbee.devices;
+  zigbeeDevices = house.zigbee.devices;
   
-  normalizedDeviceMap = lib.mapAttrs' (id: device:
-    lib.nameValuePair (lib.toLower device.friendly_name) device.friendly_name
-  ) zigbeeDevices;
-
-  deviceList = builtins.attrNames normalizedDeviceMap;
-
-  friendlyNameToId = builtins.listToAttrs (
-    lib.flatten (
-      lib.mapAttrsToList (id: device: [
-        { 
-          name = device.friendly_name; 
-          value = id; 
-        }
-      ]) zigbeeDevices
-    )
-  );
-
-  sceneLight = {state, brightness ? 200, hex ? null, temp ? null}:
-    let
-      colorValue = if hex != null then { inherit hex; } else null;
-    in
-    {
-      inherit state brightness;
-    } // (if colorValue != null then { color = colorValue; } else {})
-      // (if temp != null then { color_temp = temp; } else {});
-
-
-  scenes = config.house.zigbee.scenes;
+  scenes = house.zigbee.scenes;
   sceneConfig = pkgs.writeText "scene-config.json" (builtins.toJSON {
     scenes = scenes;
   });
@@ -54,38 +23,11 @@ let
       devices = sceneDevices;
     }) scenes
   ));
-  
-  makeCommand = deviceName: settings:
-    let
-      deviceId = friendlyNameToId.${deviceName} or null;
-      dev = if deviceId != null then zigbeeDevices.${deviceId} else null;
-      json = builtins.toJSON settings;
-      hue_id = if dev != null && dev.hue_id != null then toString dev.hue_id else "unknown";
-      mqttName = if dev != null then dev.friendly_name else deviceName;
-    in
-      if dev == null then
-        ''echo "🦆 Warning: Device '${deviceName}' not found in zigbeeDevices"''
-      else if dev.type == "hue_light" then
-        ''yo house --device "${mqttName}" --json "${json}"''
-      else
-        ''mqtt_pub --topic "zigbee2mqtt/${mqttName}/set" -m '${json}''
-      ;
-      
-  sceneCommands = lib.mapAttrs
-    (sceneName: sceneDevices:
-      lib.mapAttrs (device: settings: makeCommand device settings) sceneDevices
-    ) scenes;  
-
+        
   byRoom = lib.foldlAttrs (acc: id: dev:
     lib.recursiveUpdate acc {
       ${dev.room} = (acc.${dev.room} or []) ++ [ id ];
     }) {} zigbeeDevices;
-
-  byType = lib.foldlAttrs (acc: id: dev:
-    lib.recursiveUpdate acc {
-      ${dev.type} = (acc.${dev.type} or []) ++ [ id ];
-    }) {} zigbeeDevices;
-
 
   groupConfig = lib.mapAttrs' (room: ids: {
     name = room;
@@ -99,14 +41,13 @@ let
   }) byRoom;
 
   format = pkgs.formats.yaml { };
-  configFile = format.generate "zigbee2mqtt.yaml" config.house.zigbee.settings;
+  configFile = format.generate "zigbee2mqtt.yaml" house.zigbee.settings;
  
-  tvDevicesJson = pkgs.writeText "tv-devices.json" (builtins.toJSON config.house.tv);
+  tvDevicesJson = pkgs.writeText "tv-devices.json" (builtins.toJSON house.tv);
 
   ieeeToFriendly = lib.mapAttrs (ieee: dev: dev.friendly_name) zigbeeDevices;
   mappingJSON = builtins.toJSON ieeeToFriendly;
   mappingFile = pkgs.writeText "ieee-to-friendly.json" mappingJSON;
-
 
   deviceMeta = builtins.toJSON (
     lib.listToAttrs (
@@ -133,8 +74,6 @@ let
     )
   );
   
-
-
   deviceConfig = 
     let
       filteredDevices = lib.filterAttrs (_: dev: dev.type != "hue_light") zigbeeDevices;
@@ -144,10 +83,10 @@ let
     }) filteredDevices;
 
 
-  automationsJSON = builtins.toJSON config.house.zigbee.automations;
+  automationsJSON = builtins.toJSON house.zigbee.automations;
   automationsFile = pkgs.writeText "automations.json" automationsJSON;
 
-  dashboardConfig = lib.filterAttrs (_: card: card.enable) config.house.dashboard.statusCards;
+  dashboardConfig = lib.filterAttrs (_: card: card.enable) house.dashboard.statusCards;
   dashboardConfigJSON = builtins.toJSON {
       cards = lib.mapAttrs (name: card: {
           enable = card.enable;
@@ -158,8 +97,7 @@ let
       }) dashboardConfig;
   };
   dashboardConfigFile = pkgs.writeText "dashboard-config.json" dashboardConfigJSON;
-
-  
+ 
   statusCardsConfigJson = pkgs.writeText "status-cards-config.json" (builtins.toJSON {
     cards = lib.mapAttrs (name: card: {
       inherit name;
@@ -179,19 +117,18 @@ let
       chart = card.chart or false;
       historyField = card.historyField or "history";
       on_click_action = card.on_click_action or [];
-    }) (lib.filterAttrs (_: card: card.enable) config.house.dashboard.statusCards);
-    enabled = builtins.attrNames (lib.filterAttrs (_: card: card.enable) config.house.dashboard.statusCards);
+    }) (lib.filterAttrs (_: card: card.enable) house.dashboard.statusCards);
+    enabled = builtins.attrNames (lib.filterAttrs (_: card: card.enable) house.dashboard.statusCards);
   });
-
 
   devices-json = pkgs.writeText "devices.json" deviceMeta;
   jsonFormat = pkgs.formats.json { };
 
   mainConfig = {
     mosquitto = {
-      broker = cfg.cli.broker;
-      user = cfg.cli.user;
-      password_file = cfg.cli.passwordFile; 
+      broker = house.zigbee.mosquitto.host;
+      user = house.zigbee.mosquitto.username;
+      password_file = house.zigbee.mosquitto.passwordFile; 
       base_topic = house.zigbee.mosquitto.baseTopic;
     };
     hue = {
@@ -199,7 +136,7 @@ let
       password_file = house.zigbee.hueSyncBox.bridge.passwordFile;
     };
     dark_time = {
-      enabled = house.zigbee.motion.enable;
+      enabled = house.zigbee.motion.when.dark.enable;
       after = house.zigbee.motion.trigger.lights.after;
       before = house.zigbee.motion.trigger.lights.before;
       duration = house.zigbee.motion.trigger.lights.duration;
@@ -219,179 +156,87 @@ let
       double_click_timeout_ms = house.zigbee.dimmer.doubleClickTimeout;
     };
     api = {
-      url = "http://${config.services.zigduck.cli.broker}:${toString config.services.zigduck.api.port}";
-      password_file = config.services.zigduck.api.passwordFile;
+      url = "http://${house.zigbee.mosquitto.host}:${toString cfg.dashboard.port}";
+      password_file = cfg.dashboard.passwordFile;
+    };
+    motion = {    
+      enabled = house.zigbee.motion.enable;
+    };
+    no_motion = {
+      enabled = house.zigbee.no.motion.trigger.all.lights.off.enable;
+      after = house.zigbee.no.motion.trigger.all.lights.off.after;
+      exclude = house.zigbee.no.motion.trigger.all.lights.off.exclude;
     };
   };
 
   zigduckConfigFile = jsonFormat.generate "config.json" mainConfig;
 
-  allTVs = builtins.attrValues config.house.tv;
+  allTVs = builtins.attrValues house.tv;
   defaultIP = if allTVs == [] then "127.0.0.1" else (builtins.head allTVs).ip;
   directories = {
-    root        = config.house.media.root;
-    tv          = config.house.media.tv;
-    movie       = config.house.media.movies;
-    music       = config.house.media.music;
-    podcast     = config.house.media.podcasts;
-    musicvideo  = config.house.media.musicVideos;
-    othervideo  = config.house.media.otherVideos;
-    audiobook   = config.house.media.audiobooks;
+    root        = house.media.root;
+    tv          = house.media.tv;
+    movie       = house.media.movies;
+    music       = house.media.music;
+    podcast     = house.media.podcasts;
+    musicvideo  = house.media.musicVideos;
+    othervideo  = house.media.otherVideos;
+    audiobook   = house.media.audiobooks;
   };
 
   rooms = builtins.listToAttrs (
-    lib.mapAttrsToList (name: value: { inherit name; value = value.ip; }) config.house.tv
+    lib.mapAttrsToList (name: value: { inherit name; value = value.ip; }) house.tv
   );
 
   tvDefaultsAttrSet = {
     device_ip   = defaultIP;
     inherit rooms;
     inherit directories;
-    webserver_file = if config.house.https.urlFile != null
-                             then config.house.https.urlFile
+    webserver_file = if house.https.urlFile != null
+                             then house.https.urlFile
                              else null;    
-    playlist_file  = config.house.media.root + "/playlist.m3u";
+    playlist_file  = house.media.root + "/playlist.m3u";
     max_items      = 200;
     shuffle        = true;
-    youtube_api_key_file = if config.house.media.youtubePasswordFile != null
-                             then config.house.media.youtubePasswordFile
+    youtube_api_key_file = if house.media.youtubePasswordFile != null
+                             then house.media.youtubePasswordFile
                              else null;
-    mqtt_password_file   = if config.house.zigbee.mosquitto != null
-                             then config.house.zigbee.mosquitto.passwordFile
+    mqtt_password_file   = if house.zigbee.mosquitto != null
+                             then house.zigbee.mosquitto.passwordFile
                              else null;
   };
 
   tvDefaultsJsonFile = pkgs.writeText "tv-ctl-defaults.json"
     (builtins.toJSON tvDefaultsAttrSet);
 
+  dashboardConfigFiles = pkgs.writeText "dashboard-config.json" (builtins.toJSON {
+    dashboard_static_root = "${cfg.stateDir}/dashboard";
+    state_file = "${cfg.stateDir}/state.json";
+    alarms_file = "${cfg.stateDir}/alarms.json";
+    health_dir = "${cfg.stateDir}/health";
+    uploads_dir = "${cfg.stateDir}/uploads";
+    devices_file = "/etc/zigduck/devices.json";
+    scenes_file = "/etc/zigduck/scenes.json";
+    rooms_file = "/etc/zigduck/rooms.json";
+    types_file = "/etc/zigduck/types.json";
+    tv_defaults_file = "/etc/zigduck/tv-defaults.json";
+    media_root = house.media.root;
+    playlist_file = house.media.root + "/playlist.m3u";
+    default_tv_ip = defaultIP;
+    webserver_secret_file = if house.https.urlFile != null then house.https.urlFile else "";
+  });
 
 in {
+  imports = [ ./dashboard.nix ];
 
   options.services.zigduck = {
     enable = mkEnableOption "Zigduck";
 
-    api = {
-      enable = mkEnableOption "Zigduck API service";
-      host = mkOption {
-        type = types.str;
-        default = "0.0.0.0";
-        description = "Host to bind the API server to";
-      };
-      port = mkOption {
-        type = types.port;
-        default = 13335;
-        description = "Port for the API server";
-      };
-      passwordFile = mkOption {
-        type = types.nullOr types.path;
-        default = config.house.dashboard.passwordFile or null;
-        description = "Path to password file for API authentication (YO_API_PASSWORD_FILE)";
-      };
-    };
-
-    dashboard = {
-      enable = mkEnableOption "Zigduck API service";
-      host = mkOption {
-        type = types.str;
-        default = "0.0.0.0";
-        description = "Host to bind the webserver to";
-      };
-      port = mkOption {
-        type = types.port;
-        default = 13336;
-        description = "Port for the dashboard";
-      };
-      passwordFile = mkOption {
-        type = types.nullOr types.path;
-        default = config.house.dashboard.passwordFile or null;
-        description = "Path to password file for API authentication (YO_API_PASSWORD_FILE)";
-      };
-    };
-
-
-    # Command line options
-    cli = {
-      enable = mkOption {
-        type = types.bool;
-        default = true;
-        description = "Whether to install the zg wrapper with default settings.";
-      };
-
-      broker = mkOption {
-        type = types.str;
-        default = config.house.zigbee.mosquitto.host;
-        description = "Default MQTT broker host for the zg wrapper.";
-      };
-
-      user = mkOption {
-        type = types.str;
-        default = config.house.zigbee.mosquitto.username or "mqtt";
-        description = "Default MQTT username for the zg wrapper.";
-      };
-
-      passwordFile = mkOption {
-        type = types.nullOr types.path;
-        default = config.house.zigbee.mosquitto.passwordFile or null;
-        description = "Default path to MQTT password file for the zg wrapper.";
-      };
-
-      hueBridgeIp = mkOption {
-        type = types.nullOr types.str;
-        default = config.house.zigbee.hueBridgeIp or null;
-        description = "Default Hue Bridge IP for the zg wrapper.";
-      };
-
-      hueApiKeyFile = mkOption {
-        type = types.nullOr types.path;
-        default = config.house.zigbee.hueApiKeyFile or null;
-        description = "Default path to Hue API key file for the zg wrapper.";
-      };
-    };
-
-    # Zigduck Service options
+    # zigduck-rs service options
     broker = mkOption {
       type = types.str;
       default = "127.0.0.1";
       description = "MQTT broker hostname or IP address";
-    };
-
-    user = mkOption {
-      type = types.str;
-      default = config.house.zigbee.mosquitto.username;
-      description = "MQTT username";
-    };
-
-    passwordFile = mkOption {
-      type = types.nullOr types.path;
-      default = config.house.zigbee.mosquitto.passwordFile;
-      description = ''
-        Path to a file containing the MQTT password.
-        If not set, the service will try to read `/run/secrets/mosquitto`.
-      '';
-    };
-
-    configFile = mkOption {
-      type = types.path;
-      description = "Path to zigduck JSON configuration file";
-      default = "/etc/zigduck/config.json";
-    };
-
-    devicesFile = mkOption {
-      type = types.path;
-      default = "/etc/zigduck/devices.json"; 
-      description = "Path to devices JSON file";
-    };
-
-    sceneFile = mkOption {
-      type = types.path;
-      default = sceneConfig;
-      description = "Path to scenes JSON file";
-    };
-
-    automationsFile = mkOption {
-      type = types.path;
-      default = automationsJSONFile;
-      description = "Path to automations JSON file";
     };
 
     stateDir = mkOption {
@@ -411,7 +256,38 @@ in {
       default = {};
       description = "Extra environment variables to pass to the service";
     };
+    
+    # zigduck-dashboard servoce options
+    dashboard = {
+      enable = mkEnableOption "Zigduck dashboard service";
+      host = mkOption {
+        type = types.str;
+        default = "0.0.0.0";
+        description = "Host to bind the webserver to";
+      };
+      port = mkOption {
+        type = types.port;
+        default = 13336;
+        description = "Port for the dashboard";
+      };
+      passwordFile = mkOption {
+        type = types.nullOr types.path;
+        default = null;
+        description = "Path to password file for API authentication (API_PASSWORD_FILE)";
+      };
+    };
+
+
+    # zigduck-cli options
+    cli = {
+      enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Whether to install the zg wrapper with default settings.";
+      };
+    };
   };
+
 
   
   config = mkMerge [
@@ -424,8 +300,7 @@ in {
       networking.firewall.allowedTCPPorts =
         (map (l: l.port) config.services.mosquitto.listeners)
         ++ [ 
-          config.house.zigbee.settings.frontend.port
-          cfg.api.port
+          house.zigbee.settings.frontend.port
         ];
     
       house.zigbee = {
@@ -435,13 +310,13 @@ in {
           homeassistant = lib.mkDefault false;
           mqtt = {
             server = "mqtt://localhost:1883";
-            user = config.house.zigbee.mosquitto.username;
-            password = config.house.zigbee.mosquitto.passwordFile;
-            base_topic = config.house.zigbee.mosquitto.baseTopic;
+            user = house.zigbee.mosquitto.username;
+            password = house.zigbee.mosquitto.passwordFile;
+            base_topic = house.zigbee.mosquitto.baseTopic;
           };
           serial = {
-            port = "/dev/" + config.house.zigbee.coordinator.symlink;
-            adapter = config.house.zigbee.coordinator.adapter;
+            port = "/dev/" + house.zigbee.coordinator.symlink;
+            adapter = house.zigbee.coordinator.adapter;
           };
           frontend = { 
             enabled = true;
@@ -478,16 +353,16 @@ in {
         wantedBy = [ "multi-user.target" ];
         after = [ "sops-nix.service" "network.target" "systemd-tmpfiles-setup.service" ];
         wants = [ "systemd-tmpfiles-setup.service" ];
-        environment.ZIGBEE2MQTT_DATA = config.house.zigbee.dataDir;
+        environment.ZIGBEE2MQTT_DATA = house.zigbee.dataDir;
         preStart = ''
-          mkdir -p ${config.house.zigbee.dataDir}
-          cp --no-preserve=mode ${configFile} ${config.house.zigbee.dataDir}/configuration.yaml
-          mosquitto_password=$(cat ${config.house.zigbee.mosquitto.passwordFile})
-          network_key=$(cat ${config.house.zigbee.networkKeyFile})
-          sed -i "s|/run/secrets/mosquitto|$mosquitto_password|" ${config.house.zigbee.dataDir}/configuration.yaml
-          TMPFILE="${config.house.zigbee.dataDir}/config.yaml"
-          CFGFILE="${config.house.zigbee.dataDir}/configuration.yaml"          
-          ${pkgs.gawk}/bin/awk -v keyfile="${config.house.zigbee.networkKeyFile}" '
+          mkdir -p ${house.zigbee.dataDir}
+          cp --no-preserve=mode ${configFile} ${house.zigbee.dataDir}/configuration.yaml
+          mosquitto_password=$(cat ${house.zigbee.mosquitto.passwordFile})
+          network_key=$(cat ${house.zigbee.networkKeyFile})
+          sed -i "s|/run/secrets/mosquitto|$mosquitto_password|" ${house.zigbee.dataDir}/configuration.yaml
+          TMPFILE="${house.zigbee.dataDir}/config.yaml"
+          CFGFILE="${house.zigbee.dataDir}/configuration.yaml"          
+          ${pkgs.gawk}/bin/awk -v keyfile="${house.zigbee.networkKeyFile}" '
             /(^|[[:space:]])network_key:/ { found = 1 }
             { lines[NR] = $0 }
             END {
@@ -518,10 +393,10 @@ in {
           ExecStart = "${pkgs.zigbee2mqtt}/bin/zigbee2mqtt";
           User = "zigbee2mqtt";
           Group = "zigbee2mqtt";
-          WorkingDirectory = config.house.zigbee.dataDir;
+          WorkingDirectory = house.zigbee.dataDir;
           CapabilityBoundingSet = "";
-          DeviceAllow = lib.optionals (lib.hasPrefix "/" config.house.zigbee.settings.serial.port) [
-            config.house.zigbee.settings.serial.port
+          DeviceAllow = lib.optionals (lib.hasPrefix "/" house.zigbee.settings.serial.port) [
+            house.zigbee.settings.serial.port
           ];
           DevicePolicy = "closed";
           LockPersonality = true;
@@ -540,7 +415,7 @@ in {
           ProtectProc = "invisible";
           ProcSubset = "pid";
           ProtectSystem = "strict";
-          ReadWritePaths = config.house.zigbee.dataDir;
+          ReadWritePaths = house.zigbee.dataDir;
           RemoveIPC = true;
           RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_NETLINK" ];
           RestrictNamespaces = true;
@@ -560,7 +435,7 @@ in {
             acl = [ "pattern readwrite #" ];
             port = 1883;
             omitPasswordAuth = false;
-            users.${config.house.zigbee.mosquitto.username}.passwordFile = config.house.zigbee.mosquitto.passwordFile;
+            users.${house.zigbee.mosquitto.username}.passwordFile = house.zigbee.mosquitto.passwordFile;
             settings.allow_anonymous = false;
           }   
           {
@@ -568,7 +443,7 @@ in {
             port = 9001;
             settings.protocol = "websockets";
             omitPasswordAuth = false;
-            users.${config.house.zigbee.mosquitto.username}.passwordFile = config.house.zigbee.mosquitto.passwordFile;
+            users.${house.zigbee.mosquitto.username}.passwordFile = house.zigbee.mosquitto.passwordFile;
             settings.allow_anonymous = false;
             settings.require_certificate = false;
           } 
@@ -596,9 +471,9 @@ in {
           Environment = let
             env = {
               MQTT_BROKER = cfg.broker;
-              MQTT_USER = cfg.user;
-              MQTT_PASSWORD_FILE = cfg.passwordFile;
-              ZIGDUCK_CONFIG = cfg.configFile;
+              MQTT_USER = house.zigbee.mosquitto.username;
+              MQTT_PASSWORD_FILE = house.zigbee.mosquitto.passwordFile;
+              ZIGDUCK_CONFIG = "/etc/zigduck/config.json";
               STATE_DIR = cfg.stateDir;
               DT_LOG_LEVEL = "INFO";
               DT_LOG_FILE = cfg.stateDir + "/zigduck.log";
@@ -607,9 +482,19 @@ in {
           in mapAttrsToList (name: value: "${name}=${value}") env;
         };
       };
+      
+      services.udev.extraRules = let
+        port = house.zigbee.coordinator;
+      in
+        ''
+          SUBSYSTEM=="tty", ATTRS{idVendor}=="${port.vendorId}", ATTRS{idProduct}=="${port.productId}", SYMLINK+="${port.symlink}"
+        '';
+    })
 
-      systemd.services.zigduck-api = {
-        description = "Zigduck API Service";
+
+    (mkIf cfg.dashboard.enable {
+      systemd.services.zigduck-dashboard = {
+        description = "Zigduck dashboard Service";
         after = [ "network.target" "zigduck.service" ];
         wantedBy = [ "multi-user.target" ];
 
@@ -620,81 +505,72 @@ in {
           StateDirectory = "zigduck";
           StateDirectoryMode = "0750";
           WorkingDirectory = cfg.stateDir;
-          ExecStart = "${zigduckPkgs.zigduck-api}/bin/zigduck-api ${cfg.api.host} ${toString cfg.api.port}";
+          ExecStart = "${zigduckPkgs.zigduck-rs}/bin/zigduck-dashboard ${cfg.dashboard.host} ${toString cfg.dashboard.port}";
           Restart = "on-failure";
           RestartSec = "45s";
 
           Environment = let
             env = {
               MQTT_BROKER = cfg.broker;
-              MQTT_USER = cfg.user;
-              MQTT_PASSWORD_FILE = cfg.passwordFile;
-              ZIGDUCK_CONFIG = cfg.configFile;
+              MQTT_USER = house.zigbee.mosquitto.username;
+              MQTT_PASSWORD_FILE = house.zigbee.mosquitto.passwordFile;
+              ZIGDUCK_CONFIG_FILE = "/etc/zigduck/dashboard-config.json";
               STATE_DIR = cfg.stateDir;
               DT_LOG_LEVEL = "INFO";
               DT_LOG_FILE = cfg.stateDir + "/zigduck.log";
               PATH = "/run/current-system/sw/bin:/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:/run/current-system/sw/sbin";
               HOME = cfg.stateDir;
             } // optionalAttrs cfg.debug { DEBUG = "1"; }
-              // optionalAttrs (cfg.api.passwordFile != null) { API_PASSWORD_FILE = cfg.api.passwordFile; }
+              // optionalAttrs (cfg.dashboard.passwordFile != null) { API_PASSWORD_FILE = cfg.dashboard.passwordFile; }
               // cfg.extraEnv;
           in mapAttrsToList (name: value: "${name}=${value}") env;
         };
       };
+    })
 
-      systemd.tmpfiles.rules = [
-        "d ${cfg.stateDir} 0755 zigduck zigduck - -"
-        "d ${cfg.stateDir}/timers 0755 zigduck zigduck - -"
-        "f ${cfg.stateDir}/state.json 0644 zigduck zigduck - -"
-        "d ${config.house.zigbee.dataDir} 0755 zigbee2mqtt zigbee2mqtt -"
-       "L+ ${cfg.stateDir}/devices.json - - - - /etc/zigduck/devices.json"
-       "L+ ${cfg.stateDir}/scenes.json - - - - /etc/zigduck/scenes.json"
-       "L+ ${cfg.stateDir}/automations.json - - - - /etc/zigduck/automations.json"
-        "d ${cfg.stateDir}/.config/duckTrace 0750 zigduck zigduck - -"
-        "d ${cfg.stateDir}/intent_data 0750 zigduck zigduck - -"
+
+    (mkIf (cfg.enable || cfg.cli.enable) {
+      environment.systemPackages = [
+        zigduckPkgs.zigduck-cli
+        zigduckPkgs.tv
+        self.inputs.yo.packages.x86_64-linux.yo-rs
       ];
-            
-    })
-
-    (mkIf cfg.cli.enable {
-      environment.systemPackages = [ zigduckPkgs.zigduck-cli pkgs.mosquitto ];
       
-    })
-    
-  
-    {
-      environment.systemPackages = [ zigduckPkgs.zigduck-rs ];
       environment.etc."zigduck/config.json".source = zigduckConfigFile;
       environment.etc."zigduck/devices.json".source = devices-json;
       environment.etc."zigduck/automations.json".source = automationsFile;
       environment.etc."zigduck/scenes.json".source = sceneConfig;
       environment.etc."zigduck/scenesCLI.json".source = sceneConfigCli;
       environment.etc."zigduck/dashboard.json".source = dashboardConfigFile;
+      environment.etc."zigduck/dashboard-config.json".source = dashboardConfigFiles;
       environment.etc."zigduck/status-cards-config.json".source = statusCardsConfigJson;
       environment.etc."zigduck/tv-defaults.json".source = tvDefaultsJsonFile;
-
+      
+      systemd.tmpfiles.rules = [
+        "d ${cfg.stateDir} 0755 zigduck zigduck - -"
+        #"d ${cfg.stateDir}/timers 0755 zigduck zigduck - -"
+        "f ${cfg.stateDir}/state.json 0644 zigduck zigduck - -"
+        "d ${house.zigbee.dataDir} 0755 zigbee2mqtt zigbee2mqtt -"
+       "L+ ${cfg.stateDir}/devices.json - - - - /etc/zigduck/devices.json"
+       "L+ ${cfg.stateDir}/scenes.json - - - - /etc/zigduck/scenes.json"
+       "L+ ${cfg.stateDir}/automations.json - - - - /etc/zigduck/automations.json"
+      ];
+      
+      users.users.zigbee2mqtt = {
+        isSystemUser = true;
+        group = "zigbee2mqtt";
+        home = house.zigbee.dataDir;
+        createHome = true;
+      }; 
       users.users.zigduck = {
         isSystemUser = true;
         group = "zigduck";
         home = cfg.stateDir;
         createHome = true;
       };
-      users.users.zigbee2mqtt = {
-        isSystemUser = true;
-        group = "zigbee2mqtt";
-        home = config.house.zigbee.dataDir;
-        createHome = true;
-      }; 
 
       users.groups.zigbee2mqtt = {};  
       users.groups.zigduck = { };
-      
-      services.udev.extraRules = let
-        port = config.house.zigbee.coordinator;
-      in
-        ''
-          SUBSYSTEM=="tty", ATTRS{idVendor}=="${port.vendorId}", ATTRS{idProduct}=="${port.productId}", SYMLINK+="${port.symlink}"
-        '';
-    }
+    })
     
   ];}

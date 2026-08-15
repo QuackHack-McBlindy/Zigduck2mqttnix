@@ -2,6 +2,8 @@
   config,
   lib,
   pkgs,
+  self,
+  inputs,
   ...
 } : let
   inherit (lib) types mkOption mkEnableOption mkMerge;
@@ -18,6 +20,6 @@
     in
       lib.lists.flatten (lib.attrsets.mapAttrsToList processEntry entries);      
 in { 
-    imports = [ ./options.nix ./dashboard.nix ];
-        
+    imports = [ ./options.nix ./zigduck.nix ./assertions.nix ./helpers.nix ];
+      
    }

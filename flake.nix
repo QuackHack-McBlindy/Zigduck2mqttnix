@@ -1,7 +1,7 @@
 {
   description = "zigduck2mqttnix is a complete home automation system in Nix and Rust.";
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url   = "github:NixOS/nixpkgs/nixos-unstable";
     tinyFlake.url = "github:quackhack-mcblindy/tinyFlake";
   };
 

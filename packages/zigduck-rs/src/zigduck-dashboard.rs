@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, Condvar};
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-
+use std::path::Path;
 
 use serde::{Serialize, Deserialize};
 use serde_json::{Value, json, Map};
@@ -21,50 +21,41 @@ fn log(message: &str) {
     eprintln!("[API] {}", message);
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct TvDefaults {
-    directories: Directories,
-    playlist_file: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Directories {
-    root: Option<String>,
+#[derive(Debug, Deserialize)]
+struct DashboardConfig {
+    dashboard_static_root: String,
+    state_file: String,
+    alarms_file: String,
+    health_dir: String,
+    uploads_dir: String,
+    devices_file: String,
+    scenes_file: String,
+    rooms_file: String,
+    types_file: String,
+    tv_defaults_file: String,
+    media_root: String,
+    playlist_file: String,
+    default_tv_ip: String,
+    webserver_secret_file: String,
 }
 
 lazy_static! {
-    static ref CONFIG: (String, String) = {
-        let config_path = "/etc/zigduck/tv-defaults.json";
-        let default_root = "/Pool".to_string();
-        let default_playlist = "/Pool/playlist.m3u".to_string();
-
-        match fs::read_to_string(config_path) {
-            Ok(content) => {
-                let config: TvDefaults = serde_json::from_str(&content).unwrap_or_else(|e| {
-                    log(&format!("Failed to parse config, using defaults: {}", e));
-                    TvDefaults {
-                        directories: Directories { root: Some(default_root.clone()) },
-                        playlist_file: Some(default_playlist.clone()),
-                    }
-                });
-                let root = config.directories.root.unwrap_or(default_root);
-                let playlist = config.playlist_file.unwrap_or(default_playlist);
-                (root, playlist)
-            }
-            Err(e) => {
-                log(&format!("Could not read config file {}: {}; using defaults", config_path, e));
-                (default_root, default_playlist)
-            }
-        }
+    static ref CONFIG: DashboardConfig = {
+        let config_path = std::env::var("ZIGDUCK_CONFIG_FILE")
+            .unwrap_or_else(|_| "/etc/zigduck/dashboard-config.json".to_string());
+        let content = std::fs::read_to_string(&config_path)
+            .expect("Failed to read dashboard config file");
+        serde_json::from_str(&content)
+            .expect("Failed to parse dashboard config")
     };
 }
 
 fn get_playlist_path() -> &'static str {
-    &CONFIG.1
+    &CONFIG.playlist_file
 }
 
 fn get_root_dir() -> &'static str {
-    &CONFIG.0
+    &CONFIG.media_root
 }
 
 
@@ -76,9 +67,38 @@ lazy_static! {
     static ref PLAYLIST_MUTEX: Mutex<()> = Mutex::new(());
 }
 
+lazy_static! {
+    static ref SESSIONS: Mutex<HashMap<String, Instant>> = Mutex::new(HashMap::new());
+}
+
+fn generate_token() -> String {
+    use rand::Rng;
+    rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect()
+}
+
+fn create_session() -> String {
+    let token = generate_token();
+    let expiry = Instant::now() + Duration::from_secs(86400);
+    SESSIONS.lock().unwrap().insert(token.clone(), expiry);
+    token
+}
+
+fn validate_session(token: &str) -> bool {
+    let mut sessions = SESSIONS.lock().unwrap();
+    if let Some(expiry) = sessions.get(token) {
+        if *expiry > Instant::now() {
+            return true;
+        } else { sessions.remove(token); }
+    }
+    false
+}
+
 use chrono::{Local, Datelike, Timelike, NaiveTime};
 
-const ALARMS_FILE: &str = "/var/lib/zigduck/alarms.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Alarm {
@@ -109,7 +129,7 @@ struct AlarmManager {
 
 impl AlarmManager {
     fn new() -> Arc<Self> {
-        let alarms: Vec<Alarm> = match fs::read_to_string(ALARMS_FILE) {
+        let alarms: Vec<Alarm> = match fs::read_to_string(&CONFIG.alarms_file) {
             Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
             Err(_) => Vec::new(),
         };
@@ -124,8 +144,10 @@ impl AlarmManager {
     fn save_to_file(&self) {
         let alarms = self.alarms.lock().unwrap();
         if let Ok(json) = serde_json::to_string_pretty(&*alarms) {
-            let _ = fs::create_dir_all("/var/lib/zigduck");
-            let _ = fs::write(ALARMS_FILE, json);
+            if let Some(parent) = std::path::Path::new(&CONFIG.alarms_file).parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::write(&CONFIG.alarms_file, json);
         }
     }
 
@@ -458,10 +480,8 @@ fn handle_transcode_video_stream(url: &str, stream: &mut std::net::TcpStream) ->
 fn get_device_ip(query: &str) -> String {
     let ip = get_query_arg(query, "device");
     if ip.is_empty() {
-        "192.168.1.224".to_string()
-    } else {
-        ip
-    }
+        CONFIG.default_tv_ip.clone()
+    } else { ip }
 }
 
 fn execute_adb(device_ip: &str, args: &[&str]) -> Result<(), String> {
@@ -477,13 +497,24 @@ fn execute_adb(device_ip: &str, args: &[&str]) -> Result<(), String> {
 
 fn read_webserver_url() -> Result<String, String> {
     let path = std::env::var("WEBSERVER_SECRET_FILE")
-        .unwrap_or_else(|_| "/run/secrets/webserver".to_string());
+        .unwrap_or_else(|_| CONFIG.webserver_secret_file.clone());
     std::fs::read_to_string(&path)
         .map(|s| s.trim().to_string())
         .map_err(|e| format!("Cannot read webserver URL: {}", e))
 }
 
 fn check_password_auth(headers: &HashMap<String, String>, query: &str) -> bool {
+    if let Some(cookie_header) = headers.get("cookie") {
+        for cookie in cookie_header.split(';') {
+            let cookie = cookie.trim();
+            if let Some((name, value)) = cookie.split_once('=') {
+                if name == "auth_token" && validate_session(value) {
+                    return true;
+                }
+            }
+        }
+    }
+
     let password_file_path = match std::env::var("API_PASSWORD_FILE") {
         Ok(path) => path,
         Err(_) => {
@@ -513,10 +544,18 @@ fn check_password_auth(headers: &HashMap<String, String>, query: &str) -> bool {
     if let Some(api_key) = headers.get("x-api-key") {
         return api_key.trim() == expected_password;
     }
-
     false
 }
-    
+ 
+fn read_password_from_file() -> String {
+    match std::env::var("API_PASSWORD_FILE") {
+        Ok(path) => std::fs::read_to_string(path)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default(),
+        Err(_) => String::new(),
+    }
+} 
+ 
 fn urldecode(s: &str) -> String {
     let mut result = Vec::new();
     let bytes = s.bytes().collect::<Vec<_>>();
@@ -552,6 +591,139 @@ fn from_hex(byte: u8) -> Option<u8> {
         b'A'..=b'F' => Some(byte - b'A' + 10),
         _ => None,
     }
+}
+
+fn get_mime_type(path: &str) -> &'static str {
+    if path.ends_with(".html") { "text/html" }
+    else if path.ends_with(".css") { "text/css" }
+    else if path.ends_with(".js") { "application/javascript" }
+    else if path.ends_with(".json") { "application/json" }
+    else if path.ends_with(".png") { "image/png" }
+    else if path.ends_with(".ico") { "image/x-icon" }
+    else if path.ends_with(".svg") { "image/svg+xml" }
+    else if path.ends_with(".webmanifest") { "application/manifest+json" }
+    else { "application/octet-stream" }
+}
+
+fn is_public_path(path: &str) -> bool {
+    if path == "/login.html" || path == "/login" || path == "/favicon.ico" {
+        return true;
+    }
+    !path.ends_with(".html") && !path.ends_with(".json")
+}
+
+fn send_redirect(stream: &mut TcpStream, location: &str) {
+    let response = format!(
+        "HTTP/1.1 302 Found\r\nLocation: {}\r\nContent-Length: 0\r\n\r\n",
+        location
+    );
+    let _ = stream.write_all(response.as_bytes());
+}
+
+fn serve_static_file(stream: &mut TcpStream, request_path: &str, authenticated: bool) -> bool {
+    if !authenticated && !is_public_path(request_path) {
+        send_redirect(stream, "/login.html");
+        return true;
+    }
+
+    let static_root = &CONFIG.dashboard_static_root;
+
+    let mut trimmed = request_path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        trimmed = "index.html";
+    }
+
+    if trimmed.split('/').any(|seg| seg == ".." || seg == ".") {
+        return false;
+    }
+
+    let candidate = Path::new(static_root).join(trimmed);
+
+    if let Ok(mut file) = std::fs::File::open(&candidate) {
+        let mut content = Vec::new();
+        if file.read_to_end(&mut content).is_ok() {
+            let mime = get_mime_type(candidate.to_str().unwrap_or(""));
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
+                mime,
+                content.len()
+            );
+            if stream.write_all(headers.as_bytes()).is_ok() {
+                stream.write_all(&content).ok();
+            }
+            return true;
+        }
+    }
+    false
+}
+
+fn parse_password_from_body(body: &[u8]) -> String {
+    let body_str = String::from_utf8_lossy(body);
+    get_query_arg(&body_str, "password")
+}
+
+fn send_response_with_cookie(
+    stream: &mut TcpStream,
+    status: &str,
+    body: &str,
+    content_type: Option<&str>,
+    cookie: Option<&str>,
+    location: Option<&str>,
+) {
+    let content_type = content_type.unwrap_or("application/json");
+    let cookie_header = cookie.map(|c| format!("Set-Cookie: {}\r\n", c)).unwrap_or_default();
+    let location_header = location.map(|l| format!("Location: {}\r\n", l)).unwrap_or_default();
+    let response = format!(
+        "HTTP/1.1 {}\r\n\
+         Content-Type: {}\r\n\
+         Access-Control-Allow-Origin: *\r\n\
+         Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
+         Access-Control-Allow-Headers: Authorization, Content-Type, X-API-Key\r\n\
+         {}\
+         {}\
+         Content-Length: {}\r\n\r\n{}",
+        status,
+        content_type,
+        cookie_header,
+        location_header,
+        body.len(),
+        body
+    );
+    let _ = stream.write_all(response.as_bytes());
+}
+
+
+fn is_api_path(path: &str) -> bool {
+    let p = path.trim_end_matches('/');
+    let api_roots = [
+        "/state",
+        "/device",
+        "/scene",
+        "/timers",
+        "/alarms",
+        "/health",
+        "/do",
+        "/browse",
+        "/playlist",
+        "/media",
+        "/tts",
+        "/transcode-video",
+        "/upload",
+    ];
+
+    if api_roots.iter().any(|root| p == *root || p == format!("/api{}", root)) {
+        return true;
+    }
+
+    for root in api_roots {
+        let root_with_slash = format!("{}/", root);
+        let api_root_with_slash = format!("/api{}/", root);
+        if p.starts_with(&root_with_slash) || p.starts_with(&api_root_with_slash) {
+            return true;
+        }
+    }
+
+    p.starts_with("/api/")
 }
 
 fn send_response(stream: &mut TcpStream, status: &str, body: &str, content_type: Option<&str>) {
@@ -597,7 +769,7 @@ fn get_path_arg(query: &str) -> String {
 
 
 fn handle_state_all() -> String {
-    let state_file_path = "/var/lib/zigduck/state.json";
+    let state_file_path = &CONFIG.state_file;
     match fs::read_to_string(state_file_path) {
         Ok(content) => {
             dt_info("Returning full state.json");
@@ -611,7 +783,7 @@ fn handle_state_all() -> String {
 }
 
 fn handle_state_device(device_name: &str) -> String {
-    let state_file_path = "/var/lib/zigduck/state.json";
+    let state_file_path = &CONFIG.state_file;
     match fs::read_to_string(state_file_path) {
         Ok(content) => {
             let state_data: serde_json::Value = serde_json::from_str(&content)
@@ -633,8 +805,8 @@ fn handle_state_device(device_name: &str) -> String {
 }
 
 fn handle_state_room(room: &str) -> String {
-    let state_file_path = "/var/lib/zigduck/state.json";
-    let devices_file = "devices.json";
+    let state_file_path = &CONFIG.state_file;
+    let devices_file = &CONFIG.devices_file;
     
     match fs::read_to_string(state_file_path) {
         Ok(content) => {
@@ -706,9 +878,7 @@ fn handle_browse(path_arg: &str, use_v2: bool) -> String {
                     if let Some(name) = item_path.file_name().and_then(|n| n.to_str()) {
                         if item_path.is_dir() {
                             directories.push(name.to_string());
-                        } else {
-                            files.push(name.to_string());
-                        }
+                        } else { files.push(name.to_string()); }
                     }
                 }
             }
@@ -776,7 +946,7 @@ fn run_yo_command(args: &[&str]) -> Result<String, String> {
 }
 
 fn handle_file_upload(headers: &HashMap<String, String>, body: &[u8]) -> String {
-    let uploads_dir = "/var/lib/zigduck/uploads";
+    let uploads_dir = &CONFIG.uploads_dir;
     if let Err(e) = create_dir_all(uploads_dir) {
         return format!(r#"{{"error":"Failed to create uploads directory: {}"}}"#, e);
     }
@@ -789,9 +959,7 @@ fn handle_file_upload(headers: &HashMap<String, String>, body: &[u8]) -> String 
     
     let boundary = if let Some(idx) = content_type.find("boundary=") {
         content_type[idx + "boundary=".len()..].trim().to_string()
-    } else {
-        return r#"{"error":"No boundary in Content-Type"}"#.to_string();
-    };
+    } else { return r#"{"error":"No boundary in Content-Type"}"#.to_string(); };
     
     dt_debug(&format!("Boundary: {}", boundary));
     
@@ -934,7 +1102,7 @@ fn sanitize_filename(filename: &str) -> String {
   
 
 fn handle_device_list() -> String {
-    match fs::read_to_string("devices.json") {
+    match fs::read_to_string(&CONFIG.devices_file) {
         Ok(content) => content,
         Err(_) => r#"{"error":"Devices file not found"}"#.to_string(),
     }
@@ -975,7 +1143,7 @@ fn handle_device_rest_control(path: &str) -> String {
 fn handle_device_combined_control(device_name: &str, commands: &[(&str, String)]) -> String {
     dt_info(&format!("Device '{}' commands: {:?}", device_name, commands));
 
-    let devices_json = fs::read_to_string("devices.json").unwrap_or_else(|_| "{}".to_string());
+    let devices_json = fs::read_to_string(&CONFIG.devices_file).unwrap_or_else(|_| "{}".to_string());
     let devices: HashMap<String, serde_json::Value> =
         serde_json::from_str(&devices_json).unwrap_or_default();
 
@@ -1106,7 +1274,7 @@ fn handle_scene_activate(scene_name: &str) -> String {
     if scene_name.is_empty() {
         return r#"{"error":"Missing scene name"}"#.to_string();
     }
-    let scenes_content = match fs::read_to_string("scenes.json") {
+    let scenes_content = match fs::read_to_string(&CONFIG.scenes_file) {
         Ok(c) => c,
         Err(_) => return r#"{"error":"Scenes file not found"}"#.to_string(),
     };
@@ -1153,14 +1321,14 @@ fn handle_scene_activate(scene_name: &str) -> String {
 
 
 fn handle_rooms_list() -> String {
-    match fs::read_to_string("rooms.json") {
+    match fs::read_to_string(&CONFIG.rooms_file) {
         Ok(content) => content,
         Err(_) => r#"{"error":"Rooms data not available"}"#.to_string(),
     }
 }
 
 fn handle_types_list() -> String {
-    match fs::read_to_string("types.json") {
+    match fs::read_to_string(&CONFIG.types_file) {
         Ok(content) => content,
         Err(_) => r#"{"error":"Types data not available"}"#.to_string(),
     }
@@ -1191,7 +1359,7 @@ fn handle_health_check() -> String {
 }
 
 fn handle_health_all() -> String {
-    let health_dir = "/var/lib/zigduck/health";
+    let health_dir = &CONFIG.health_dir;
     let mut health_data = std::collections::HashMap::new();
 
     if let Ok(entries) = std::fs::read_dir(health_dir) {
@@ -1514,14 +1682,41 @@ fn handle_request(mut stream: TcpStream) {
         }
     }
 
-
     let (path_no_query, query) = match raw_path.split_once('?') {
         Some((path, query)) => (path, query),
         None => (raw_path, ""),
     };
 
+    let authenticated = check_password_auth(&headers, query);
 
-    if method != "OPTIONS" && path_no_query != "/health" && path_no_query != "/health/all" && !check_password_auth(&headers, query) {
+    if method == "POST" && path_no_query == "/submit" {
+        let password = parse_password_from_body(&body);
+        let expected = read_password_from_file();
+        if password == expected {
+            let token = create_session();
+            let cookie = format!("auth_token={}; Path=/; HttpOnly; SameSite=Lax", token);
+            send_response_with_cookie(&mut stream, "302 Found", "", None, Some(&cookie), Some("/"));
+        } else {
+            send_response(&mut stream, "401 Unauthorized", r#"{"error":"Invalid password"}"#, None);
+        }
+        return;
+    }
+
+    if method == "GET" && !is_api_path(path_no_query) {
+        if path_no_query == "/" {
+            if authenticated {
+                serve_static_file(&mut stream, "/index.html", true);
+            } else {
+                send_redirect(&mut stream, "/login.html");
+            }
+            return;
+        }
+        if serve_static_file(&mut stream, path_no_query, authenticated) {
+            return;
+        }
+    }
+
+    if method != "OPTIONS" && path_no_query != "/health" && path_no_query != "/health/all" && !authenticated {
         send_response(&mut stream, "401 Unauthorized", r#"{"error":"Authentication required"}"#, Some("application/json"));
         return;
     }
@@ -1799,9 +1994,7 @@ fn handle_request(mut stream: TcpStream) {
                 stripped
             } else if let Some(stripped) = path.strip_prefix("/state/") {
                 stripped
-            } else {
-                path
-            };
+            } else { path };
             
             let parts: Vec<&str> = rest.split('/').collect();
             
@@ -1866,9 +2059,7 @@ fn handle_request(mut stream: TcpStream) {
                 stripped
             } else if let Some(stripped) = path.strip_prefix("/scene/") {
                 stripped
-            } else {
-                path
-            };
+            } else { path };
 
             let decoded_scene_name = scene_name.replace('+', " ");
             dt_info(&format!("Scene activation: {}", decoded_scene_name));
@@ -2012,21 +2203,17 @@ fn handle_request(mut stream: TcpStream) {
             let response = handle_file_upload(&headers, &body);
             if response.contains("error") {
                 dt_error(&format!("Upload failed: {}", response));
-            } else {
-                dt_info("File uploaded successfully");
-            }
+            } else { dt_info("File uploaded successfully"); }
             send_response(&mut stream, "200 OK", &response, None);
         }
         
-        _ => {
-            send_response(&mut stream, "404 Not Found", &format!(r#"{{"error":"Endpoint not found","path":"{}"}}"#, raw_path), None);
-        }
+        _ => { send_response(&mut stream, "404 Not Found", &format!(r#"{{"error":"Endpoint not found","path":"{}"}}"#, raw_path), None); }
     }
 }
 
 fn main() {
     dt_setup(None, None);
-    dt_info(&format!("🚀 Starting yo API server"));
+    dt_info(&format!("Starting zigduck-dashboard server"));
         
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
@@ -2040,6 +2227,14 @@ fn main() {
 
     start_timer_thread(TIMER_MANAGER.clone());
     start_alarm_thread(ALARM_MANAGER.clone());
+
+    std::thread::spawn(|| {
+        loop {
+            std::thread::sleep(Duration::from_secs(3600));
+            let mut sessions = SESSIONS.lock().unwrap();
+            sessions.retain(|_, expiry| *expiry > Instant::now());
+        }
+    });
 
     if TcpListener::bind(&address).is_err() {
         dt_error(&format!("❌ Port {} is already in use", port));
@@ -2102,9 +2297,7 @@ fn main() {
                     handle_request(stream);
                 });
             }
-            Err(e) => {
-                dt_warning(&format!("Connection failed: {}", e));
-            }
+            Err(e) => { dt_warning(&format!("Connection failed: {}", e)); }
         }
     }
 }

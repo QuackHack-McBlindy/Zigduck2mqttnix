@@ -2,17 +2,24 @@
 
 [![Sponsors](https://img.shields.io/github/sponsors/QuackHack-McBlindy?logo=githubsponsors&label=Sponsor&style=flat&labelColor=ff1493&logoColor=fff&color=rgba(234,74,170,0.5) "")](https://github.com/sponsors/QuackHack-McBlindy) [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Sponsor?style=flat&logo=buymeacoffee&logoColor=fff&labelColor=ff1493&color=ff1493)](https://buymeacoffee.com/quackhackmcblindy)
 
+<br>
 
+<a href="https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/images/logo.png">
+  <img src="images/logo.png" alt="Logo" width="300">
+</a> 
 
 <br>
 
-Declarative full-stack Zigbee home automation system that's reproducible and deployable.  
+Declarative full-stack NixOS (Zigbee) home automation system that's reproducible and deployable.  
 Nix for configuration, Rust for responsive async runtime.  
 Under the hood: zigbee2mqtt, Mosquitto, serde_json and adb.   
   
-Define once, forget forever.   
+**Define once, forget forever.**   
 
-Zigduck2mqttnix uses smart defaults, after defining your rooms & devices -- most users don’t need to write any automations at all.  
+Zigduck2mqttnix uses smart defaults, after defining your rooms & devices --   
+most users don’t need to write any automations at all.  
+Lights, dimmers, motion sensors - it should all work as expected out of the box.  
+Everything is configurable via NixOS options.   
   
 An optional dashboard page is generated from the defined Nix configuration to display customized cards as well as scene activation and device control on-the-fly.   
  
@@ -37,7 +44,10 @@ An optional dashboard page is generated from the defined Nix configuration to di
 
 <br>
 
-Want to top it off with declarative voice control? See [yo](https://github.com/QuackHack-McBlindy/yo).   
+For security reasons, it's highly recommended to serve the dashboard over a reverse proxy *(Nginx, Caddy, Trafik, etc)*.  
+
+<br>
+
 See [DOCS](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/DOCS.md) for more text.  
 
 <br> 
@@ -49,10 +59,8 @@ See [DOCS](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/blob/main/DOCS.
 ❄️ Using flakes
 </strong></summary>
 
-Use `Zigduck2mqttnix`:  
-  
 
-#### **1: Add zigduck2mqttnix as an input in your flake.nix**
+#### **1: Add zigduck2mqttnix & yo as inputs in your flake.nix**
 
 ```nix
   inputs = {
@@ -62,32 +70,25 @@ Use `Zigduck2mqttnix`:
 ```
 
 
-#### **2: Import the zigduck2mqttnix module into your configuration**  
+#### **2: Import the modules into your configuration**  
   
 
 ```nix
-  imports = [ zigduck2mqttnix.nixosModules.zigduck2mqttnix ];
+  imports = [ 
+    zigduck2mqttnix.nixosModules.zigduck2mqttnix
+  ];
 ```
 
 
 #### **3: Enable the services**  
 
 ```nix
-    environment.systemPackages = [ 
-      self.inputs.zigduck2mqttnix.packages.x86_64-linux.zigduck-rs
-      self.inputs.zigduck2mqttnix.packages.x86_64-linux.zigduck-cli
-      self.inputs.zigduck2mqttnix.packages.x86_64-linux.zigduck-api
-      self.inputs.zigduck2mqttnix.packages.x86_64-linux.tv      
-    ];
     services.zigduck = {
       enable = true;
-      api.enable = true;
-      api.port = 13335;
-      api.passwordFile = config.sops.secrets.api.path;
       dashboard.enable = true;
       dashboard.port = 13336;
       dashboard.passwordFile = config.sops.secrets.dashboard.path;
-      # if using `yo` and want to execuite scripts from the `zigduck`
+      # if using `yo` and want to execuite scripts from the `zigduck` user
       extraEnv.PATH = 
         "/run/current-system/sw/bin:"
         + "/optional/wrappers";
@@ -95,7 +96,6 @@ Use `Zigduck2mqttnix`:
 
     };
 ```
-
 
 
 </details>
@@ -116,6 +116,7 @@ Use `Zigduck2mqttnix`:
     zigbee = {
       # without this network key there is no reproducibility and all devices would need to be paired again
       networkKeyFile = config.sops.secrets.z2m_network_key.path;
+      
       mosquitto = {
         host = "192.168.1.110";
         username = "duckmqtt";
@@ -126,7 +127,8 @@ Use `Zigduck2mqttnix`:
         productId = "ea61";
         symlink = "zigbee"; # symlinks usb port as "/dev/zigbee"
       };
-      # optional philips hue  bridge etc
+      
+      # [optional] Philips Hue bridge etc
       hueSyncBox = { 
         enable = true;
         bridge = { 
@@ -174,7 +176,7 @@ Use `Zigduck2mqttnix`:
 <br>
 
 zigduck2mqttnix always uses smart defaults.   
-Define a dimmer, or motion sensor and those devices would default to control its defined room, unless overridden.     
+Define a dimmer, or motion sensor and those devices would default to control it's defined room, unless overridden.     
 
 **Example configuration:**  
 
@@ -191,7 +193,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
           batteryType = "CR2450"; # optional - currently only used as a note to self
         }; 
         "0x0017880402750848a" = { 
-          friendly_name = "Spotlight kök 1";
+          friendly_name = "Spotlight 1";
           room = "kitchen";
           type = "light";
           icon = "mdi:spotlight";
@@ -247,7 +249,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
 **Example configuraiton:**  
 
 ```nix    
-    zigbee
+    house.zigbee = {
       dimmer = {
         message = "action";
         # double clicking on automatically cycles defined scenes in the dimmers room.
@@ -256,17 +258,30 @@ Define a dimmer, or motion sensor and those devices would default to control its
         #actions = {
         #  onPress = "on_press_release";
         #  onHold = "on_hold_release";
+        #  upPress = "op_press_release";
+        #  upHold = "up_hold_release";
+        #  downPress = "down_press_release";
+        #  downHold = "down_hold_release";           
+        #  offPress = "off_press_release";
+        #  offHold = "off_hold_release";   
         #};  
       };
       
       motion = {
-        # enable to let motion sensors turn on room lights
-        enable = true;
+        when.dark.enable = true; # enabled by default
         trigger.lights = {
           # time window in which motion trigger lights on
           after = 14;
           before = 9;
           duration = 900; # turn off lights again after x seconds of no motion
+        };  
+      };
+            
+      no.motion = {
+        trigger.all.lights.off = {
+          enable = true; # disabled by default
+          after = 60; # minutes
+          exclude = [ "Spotlight 1" "Spotlight 2" ]; # exclude list of devices by friendly name. (wont turn off)
         };  
       };
 ```
@@ -295,7 +310,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
         "Spotlight 2" = {
           state = "OFF";        
           transition = 100;
-        };          
+        };
         # ... more lights
 ```
 
@@ -318,27 +333,40 @@ Define a dimmer, or motion sensor and those devices would default to control its
         # + a greeting automation
         greeting = {
           enable = true;
-          awayDuration = 7200;
+          awayDuration = 7200; # only trigger if nobody home for x seconds
           delay = 10; # wait x seconds before action is performed
           actions = [ 
             {
               type = "shell";
               command = ''
-                my tts command here for example
+                tts command here for example
               '';
             }
           ];
         };
         
+        # 1. time based automations
+        time_based = {       
+          morning_wakeup = {
+            enable = true;
+            description = "set morning wakeup alarm";
+            schedule = {
+              start = "01:00";
+              days = ["mon" "tue" "wed" "thu" "fri"];
+            };
+            conditions = [ { type = "someone_home"; value = true; } ];
+            actions = [ "zigduck-cli alarm add --hours 11 --minutes 00" ];
+          };
+        };
 
-        # 1. MQTT triggered automations
+        # 2. MQTT triggered automations
         mqtt_triggered = {
           alarm_wakeup = {
             enable = true;
             description = "Time to wake up!";
             topic = "zigbee2mqtt/alarm/triggered";
             actions = [  
-              # there are 4 different automation action types
+              # there are 5 different automation action types
               # 1. shell
               { type = "shell"; command = "tv --typ youtube --search 'nisse snus'"; }     
               # 2. scene
@@ -350,8 +378,10 @@ Define a dimmer, or motion sensor and those devices would default to control its
               { type = "wait"; duration = 10; }
               { type = "scene"; scene = "dark-fast"; }
               { type = "wait"; duration = 2; }
-              { type = "shell"; command = "curl http://192.168.1.13/api/settings/speaker/play/ding"; }              
-              { type = "scene"; scene = "max"; }
+              { type = "shell"; command = "curl http://192.168.1.13/api/settings/speaker/play/ding"; }
+              # 5. simple string (shell shortcut)
+              # (can be used to write automations using natural language
+              "yo do 'turn on all lights'"
               { type = "wait"; duration = 2; }     
               { type = "shell"; command = "curl http://192.168.1.15/api/settings/speaker/play/ding"; }          
               { type = "wait"; duration = 10; }
@@ -374,7 +404,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
           };
         };
           
-        # 2. room action automations
+        # 3. room action automations
         room_actions = {
           hallway = { 
             # simple string can be used as "shell" automation action
@@ -408,7 +438,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
                   zigduck-cli --publish --topic "zigduck/Fläkt/set" --payload '{"countdown": 0}'
                   # if fan is off - start it
                   STATE=$(jq -r '."Fläkt".state' /var/lib/zigduck/state.json)
-                  if [ "$STATE" = "OFF" ]; then               
+                  if [ "$STATE" = "OFF" ]; then
                     zigduck-cli --device "Fläkt" --state on
                   fi
                 '';
@@ -418,13 +448,13 @@ Define a dimmer, or motion sensor and those devices would default to control its
         };
      
           
-        # 3. global actions automations  
+        # 4. global actions automations  
         global_actions = {
           leak_detected = [ "notify '🚨 WATER LEAK DETECTED!'" ];
           smoke_detected = [ "notify '🔥 SMOKE DETECTED!'" ];
         };
 
-        # 4. [optional] dimmer actions automations (default configured per room)
+        # 5. [optional] dimmer actions automations (default configured per room)
         dimmer_actions = {          
           bedroom = {
             off_hold_release = {
@@ -445,24 +475,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
             };   
           };              
         };
-        
-        # 5. time based automations
-        time_based = {       
-          morning_wakeup = {
-            enable = true;
-            description = "set morning wakeup alarm (don't miss lunch)";
-            # 01 AM mon-fri 
-            schedule = {
-              start = "01:00";
-              days = ["mon" "tue" "wed" "thu" "fri"];
-            };
-            conditions = [ { type = "someone_home"; value = true; } ];
-            # 11 AM (i like to sleep in)
-            actions = [ "zigduck-cli alarm add --hours 11 --minutes 00" ];
-          };
-        };
- 
-        
+                 
         # 6. presence based automations
         presence_based = {};        
       };  
@@ -482,7 +495,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
 
 ```nix
   house = {
-    # Android TV requires a https domain to be able to play external .m3u files 
+    # Android TV requires a `https` domain (TLS) to be able to play external .m3u files 
     
     # path to a file containing user's HTTPS URL.
     # example file contents: ```https://media.my-domain.org```
@@ -507,7 +520,7 @@ Define a dimmer, or motion sensor and those devices would default to control its
     };
 
 
-    # tv's    
+    # tv devices  
     tv = {
       "my-tv" = {
         ip = "192.168.1.123";
@@ -623,11 +636,26 @@ Define a dimmer, or motion sensor and those devices would default to control its
     };  
 ```
 
+<br>
 
 </details>
 
 
+
+<details><summary><strong>
+🎙️ Voice (optional)
+</strong></summary>
+
+[yo](https://github.com/QuackHack-McBlindy/yo) is handling everything voice/natural language related, please see it's repo for setup instructions.  
+
+Once setup, copy the `./modules/voice` directory into your NixOS configuration to be able to control your devices/rooms/media/timers/alarmsetc.
+
+For `ESP32-S3` based yo clients - check out [yo-esp](https://github.com/QuackHack-McBlindy/yo-esp).   
+To write additional custom voice commands, please see [yo](https://github.com/QuackHack-McBlindy/yo) for instructions.   
+
 <br>
+</details>
+
 
 ## **Usage**
 
@@ -739,6 +767,7 @@ zigduck-cli --scene myScene --room kitchen
 zigduck-cli --blinds up
 zigduck-cli --device myLight --state on --brightness 90 --color red --transition 5
 zigduck-cli timer set --minutes 15 --seconds 30
+zigduck-cli alarm add --hours 07 --minutes 0
 zigduck-cli --publish --topic "zigduck/Fläkt/set" --payload '{"countdown": 0}'
 ```
 
@@ -771,6 +800,8 @@ Options:
 *Example usage:*
 
 ```
+tv --typ on
+tv --typ music --search "iron maiden" --ip 192.168.1.123
 tv --typ tv --search "big bang theory"
 tv --typ song --search "the duck song" --room bedroom
 tv --typ youtube --search "play a youtube video"
@@ -780,7 +811,6 @@ tv --typ youtube --search "play a youtube video"
 <br>
 
 </details>
-
 
 
 <details><summary><strong>
@@ -869,6 +899,3 @@ This project is licensed under the terms of the MIT license.
 See the `LICENSE` file in the repository for full details.
 
 Contributions are welcomed.
-
-
-
