@@ -14,7 +14,7 @@
 
 
 **Zigduck2mqttnix** is the flake that brings version control to your smart home.   
-A **NixOS**-based Zigbee full-stack home automation system that is reproducible, declarative, and deployable.    
+A **NixOS**-based Zigbee full-stack home automation system that's reproducible and deployable.  
 Nix for configuration, Rust for responsive async runtime.  
 Under the hood: zigbee2mqtt, Mosquitto, tokio/serde_json and adb.   
   
