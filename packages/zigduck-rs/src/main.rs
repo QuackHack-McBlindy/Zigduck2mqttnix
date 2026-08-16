@@ -246,6 +246,7 @@ struct ZigduckState {
     config: HouseConfig,
     last_button_press: Arc<Mutex<HashMap<String, SystemTime>>>,
     double_click_timeout: Duration,
+    motion_triggered: Arc<RwLock<HashMap<String, bool>>>,    
 }
 
 impl Clone for ZigduckState {
@@ -275,6 +276,7 @@ impl Clone for ZigduckState {
             config: self.config.clone(),
             last_button_press: Arc::new(Mutex::new(HashMap::new())),
             double_click_timeout: self.double_click_timeout,
+            motion_triggered: self.motion_triggered.clone(),
         }
     }
 }
@@ -342,30 +344,22 @@ impl ZigduckState {
 
         if let Some(state) = settings.get("state").and_then(|s| s.as_str()) {
             payload.insert("on".to_string(), serde_json::Value::Bool(state == "ON"));
-        } else {
-            payload.insert("on".to_string(), serde_json::Value::Bool(true));
-        }
+        } else { payload.insert("on".to_string(), serde_json::Value::Bool(true)); }
 
         if let Some(brightness) = settings.get("brightness") {
             if let Some(bri) = brightness.as_u64() {
                 let hue_bri = (bri as f32).min(254.0) as u8;
-                if hue_bri > 0 {
-                    payload.insert("bri".to_string(), serde_json::Value::Number(hue_bri.into()));
-                }
+                if hue_bri > 0 { payload.insert("bri".to_string(), serde_json::Value::Number(hue_bri.into())); }
             } else if let Some(bri) = brightness.as_f64() {
                 let hue_bri = (bri as f32).min(254.0) as u8;
-                if hue_bri > 0 {
-                    payload.insert("bri".to_string(), serde_json::Value::Number(hue_bri.into()));
-                }
+                if hue_bri > 0 { payload.insert("bri".to_string(), serde_json::Value::Number(hue_bri.into())); }
             }
         }
 
         if let Some(color_obj) = settings.get("color") {
             if let Some(xy_array) = color_obj.get("xy") {
                 if let Some(xy) = xy_array.as_array() {
-                    if xy.len() == 2 {
-                        payload.insert("xy".to_string(), serde_json::json!(xy));
-                    }
+                    if xy.len() == 2 { payload.insert("xy".to_string(), serde_json::json!(xy)); }
                 }
             }
         }
@@ -386,7 +380,6 @@ impl ZigduckState {
                 payload.insert("transitiontime".to_string(), serde_json::Value::Number(trans_time.into()));
             }
         }
-
         Ok(serde_json::Value::Object(payload))
     }
 
@@ -974,6 +967,7 @@ impl ZigduckState {
             config,
             double_click_timeout,
             last_button_press: Arc::new(Mutex::new(HashMap::new())),
+            motion_triggered: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -1417,19 +1411,14 @@ impl ZigduckState {
 
     // 🦆 says ⮞ track motion-triggered lights
     fn set_motion_triggered(&self, room: &str, triggered: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let motion_file = format!("{}/motion_triggered.json", self.state_dir);
-        let content = fs::read_to_string(&motion_file).unwrap_or_else(|_| "{}".to_string());
-        let mut motion_state: Value = serde_json::from_str(&content).unwrap_or_else(|_| json!({}));
-        motion_state[room] = Value::Bool(triggered);
-        fs::write(&motion_file, motion_state.to_string())?;
+        let mut map = self.motion_triggered.write().unwrap();
+        map.insert(room.to_string(), triggered);
         Ok(())
     }
 
     fn is_motion_triggered(&self, room: &str) -> bool {
-        let motion_file = format!("{}/motion_triggered.json", self.state_dir);
-        let content = fs::read_to_string(&motion_file).unwrap_or_else(|_| "{}".to_string());
-        let motion_state: Value = serde_json::from_str(&content).unwrap_or_else(|_| json!({}));
-        motion_state[room].as_bool().unwrap_or(false)
+        let map = self.motion_triggered.read().unwrap();
+        map.get(room).copied().unwrap_or(false)
     }
 
     // 🦆 says ⮞ ALL LIGHTS CONTROLLER
@@ -1793,16 +1782,7 @@ impl ZigduckState {
             if let Some(occupancy) = data["occupancy"].as_bool() {
                 if occupancy {
                     self.update_motion_tracker(device_name);     
-                
-                    let motion_data = json!({
-                        "last_active_room": room,
-                        "timestamp": Local::now().to_rfc3339()
-                    });
-
-                    if let Err(e) = fs::write(format!("{}/last_motion.json", self.state_dir), motion_data.to_string()) {
-                        dt_info!("Failed to write last_motion.json: {}", e);
-                    }
-
+            
                     dt_info!("🕵️ Motion in {} {}", device_name, room);
 
                     self.execute_automations("motion", "motion_detected", device_name, &room).await?;
