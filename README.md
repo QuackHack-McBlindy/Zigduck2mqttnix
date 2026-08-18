@@ -75,6 +75,15 @@ An optional **dashboard** page is generated from the defined Nix configuration t
   ];
 ```
 
+> **Note:** the module also requires `self` and `inputs` as module arguments. Pass them to your `nixosSystem` via `specialArgs`:  
+
+```nix
+  nixosSystem {
+    specialArgs = { inherit self inputs; };
+    ...
+  }
+```
+
 
 #### **3: Enable the services**  
 
@@ -103,6 +112,7 @@ An optional **dashboard** page is generated from the defined Nix configuration t
 
 ## **Configuration**
 
+If anything about the configuration is unclear or if you have questions, a good starter point would be to study the [options](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/tree/main/options) which has detailed descriptions for every option.  
 
 <details><summary><strong>
 🛜 Zigbee configuration
@@ -361,7 +371,6 @@ Define a dimmer, or motion sensor and those devices would default to control it'
               start = "01:00";
               days = ["mon" "tue" "wed" "thu" "fri"];
             };
-            conditions = [ { type = "someone_home"; value = true; } ];
             actions = [ "zigduck-cli alarm add --hours 11 --minutes 00" ];
           };
         };
@@ -532,7 +541,13 @@ Define a dimmer, or motion sensor and those devices would default to control it'
       "my-tv" = {
         ip = "192.168.1.123";
         room = "bedroom";
-      };    
+      };  
+      "my-other-tv" = {
+        ip = "192.168.1.124";
+        room = "livingroom";
+        isDefault = true;
+      };  
+            
     };    
   };
 ```

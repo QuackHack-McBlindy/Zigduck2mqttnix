@@ -74,6 +74,9 @@ struct Args {
             "on", "off", "up", "down", "next", "prev", "pause", "play",
             "call", "youtube", "tv", "movie", "podcast", "music", "musicvideo",
             "audiobook", "jukebox", "song", "othervideo",
+            "nav_up", "nav_down", "nav_left", "nav_right",
+            "nav_select", "nav_menu", "nav_back",
+            "channel_up", "channel_down", "nav_home", "nav_recents",
         ]
     )]
     typ: String,
@@ -106,6 +109,7 @@ struct Args {
 struct Config {
     device_ip: String,
     rooms: HashMap<String, String>,
+    tvs: HashMap<String, TvConfig>,
     directories: HashMap<String, String>,
     webserver_file: String,
     playlist_file: String,
@@ -114,6 +118,14 @@ struct Config {
     youtube_api_key_file: String,
 }
 
+#[derive(Deserialize)]
+struct TvConfig {
+    ip: String,
+    room: String,
+    #[serde(default)]
+    is_default: bool,
+    keymap: HashMap<String, String>,
+}
 
 impl Config {
     fn webserver(&self) -> String {
@@ -129,17 +141,22 @@ fn load_config(path: &Path) -> Config {
     serde_json::from_str(&data).expect("Invalid config JSON")
 }
 
-fn resolve_device_ip(args: &Args, config: &Config) -> String {
+fn resolve_tv<'a>(args: &Args, config: &'a Config) -> &'a TvConfig {
     if let Some(ip) = &args.ip {
-        return ip.clone();
+        if let Some(tv) = config.tvs.values().find(|tv| &tv.ip == ip) {
+            return tv;
+        }
+        eprintln!("Warning: no TV found with IP '{}', falling back to default", ip);
     }
     if let Some(room) = &args.room {
-        if let Some(ip) = config.rooms.get(room) {
-            return ip.clone();
+        if let Some(tv) = config.tvs.values().find(|tv| &tv.room == room) {
+            return tv;
         }
-        eprintln!("Warning: room '{}' not found in config, falling back to default", room);
+        eprintln!("Warning: no TV found in room '{}', falling back to default", room);
     }
-    config.device_ip.clone()
+    config.tvs.values().find(|tv| tv.is_default)
+        .or_else(|| config.tvs.values().next())
+        .expect("No TVs defined in config")
 }
 
 
@@ -167,7 +184,7 @@ fn adb_keyevent(ip: &str, key: &str) {
     adb(ip, &["shell", "input", "keyevent", key]);
 }
 
-fn wake_and_connect(ip: &str) {
+fn wake_and_connect(ip: &str, wake_key: &str) {
     let connect = Command::new("adb")
         .args(["connect", ip])
         .output()
@@ -177,19 +194,17 @@ fn wake_and_connect(ip: &str) {
         eprintln!("ADB connect to {} failed:\n{}", ip, stderr.trim());
         return;
     }
-    adb_keyevent(ip, "KEYCODE_WAKEUP");
+    adb_keyevent(ip, wake_key);
 }
 
-fn play_playlist(ip: &str, playlist_url: &str) {
-    wake_and_connect(ip);
+fn play_playlist(ip: &str, playlist_url: &str, wake_key: &str) {
+    wake_and_connect(ip, wake_key);
     let cmd = format!(
         "am start -a android.intent.action.VIEW -d \"{}\" -t \"audio/x-mpegurl\"",
         playlist_url
     );
     adb(ip, &["shell", &cmd]);
 }
-
-
 
 // playlist generation
 fn generate_folder_playlist(
@@ -268,9 +283,7 @@ fn fuzzy_match_dir(base: &Path, query: &str) -> Option<String> {
 
     if score > 30 {
         Some(best)
-    } else {
-        None
-    }
+    } else { None }
 }
 
 // file‑based fuzzy match returning the top 3 (score, path) using a combined score
@@ -329,8 +342,8 @@ fn make_playlist_from_files(
 }
 
 
-fn play_youtube_video(ip: &str, video_url: &str) {
-    wake_and_connect(ip);
+fn play_youtube_video(ip: &str, video_url: &str, wake_key: &str) {
+    wake_and_connect(ip, wake_key);
     let cmd = format!(
         "am start -a android.intent.action.VIEW -d \"{}\" com.google.android.youtube.tv",
         video_url
@@ -350,7 +363,9 @@ fn main() {
 
 
     let config = load_config(&args.config);
-    let device_ip = resolve_device_ip(&args, &config);
+    let tv = resolve_tv(&args, &config);
+    let device_ip = &tv.ip;
+    let keymap = &tv.keymap;
     let webserver_url = config.webserver(); 
 
     let shuffle = !args.no_shuffle && config.shuffle;
@@ -366,52 +381,108 @@ fn main() {
     // direct key events
     match typ.as_str() {
         "on" => {
-            wake_and_connect(&device_ip);
+            wake_and_connect(&device_ip, &keymap["power_on"]);
             println!("Device woken up");
             return;
         }
         "off" => {
-            wake_and_connect(&device_ip);
-            adb_keyevent(&device_ip, "KEYCODE_SLEEP");
+            wake_and_connect(&device_ip, &keymap["power_on"]);
+            adb_keyevent(&device_ip, &keymap["power_off"]);
             println!("Device put to sleep");
             return;
         }
         "up" => {
-            adb_keyevent(&device_ip, "KEYCODE_VOLUME_UP");
-            adb_keyevent(&device_ip, "KEYCODE_VOLUME_UP");
+            adb_keyevent(&device_ip, &keymap["volume_up"]);
+            adb_keyevent(&device_ip, &keymap["volume_up"]);
             println!("Increased the volume.");
             return;
         }
         "down" => {
             for _ in 0..3 {
-                adb_keyevent(&device_ip, "KEYCODE_VOLUME_DOWN");
+                adb_keyevent(&device_ip, &keymap["volume_down"]);
             }
             println!("Lowered the volume.");
             return;
         }
         "next" => {
-            adb_keyevent(&device_ip, "KEYCODE_MEDIA_NEXT");
+            adb_keyevent(&device_ip, &keymap["next"]);
             println!("Playing next track/episode.");
             return;
         }
         "prev" | "previous" => {
-            adb_keyevent(&device_ip, "KEYCODE_MEDIA_PREVIOUS");
+            adb_keyevent(&device_ip, &keymap["previous"]);
             println!("Playing previous track/episode.");
             return;
         }
         "pause" | "play" => {
-            adb_keyevent(&device_ip, "KEYCODE_MEDIA_PLAY_PAUSE");
+            adb_keyevent(&device_ip, &keymap["play_pause"]);
+            return;
+        }
+        "nav_up" => {
+            adb_keyevent(&device_ip, &keymap["nav_up"]);
+            println!("Navigating up.");
+            return;
+        }
+        "nav_down" => {
+            adb_keyevent(&device_ip, &keymap["nav_down"]);
+            println!("Navigating down.");
+            return;
+        }
+        "nav_left" => {
+            adb_keyevent(&device_ip, &keymap["nav_left"]);
+            println!("Navigating left.");
+            return;
+        }
+        "nav_right" => {
+            adb_keyevent(&device_ip, &keymap["nav_right"]);
+            println!("Navigating right.");
+            return;
+        }
+        "nav_select" => {
+            adb_keyevent(&device_ip, &keymap["nav_select"]);
+            println!("Selecting.");
+            return;
+        }
+        "nav_menu" => {
+            adb_keyevent(&device_ip, &keymap["nav_menu"]);
+            println!("Opening menu.");
+            return;
+        }
+        "nav_back" => {
+            adb_keyevent(&device_ip, &keymap["nav_back"]);
+            println!("Going back.");
+            return;
+        }
+        "channel_up" => {
+            adb_keyevent(&device_ip, &keymap["channel_up"]);
+            println!("Channel up.");
+            return;
+        }
+        "channel_down" => {
+            adb_keyevent(&device_ip, &keymap["channel_down"]);
+            println!("Channel down.");
+            return;
+        }
+        "nav_home" => {
+            adb_keyevent(&device_ip, &keymap["nav_home"]);
+            println!("Going to home screen.");
+            return;
+        }
+        "nav_recents" => {
+            adb_keyevent(&device_ip, &keymap["nav_recents"]);
+            println!("Opening recent apps.");
             return;
         }
         "play_playlist" => {
             play_playlist(
                 &device_ip,
                 &format!("{}/playlist.m3u", webserver_url),
+                &keymap["power_on"],
             );
             return;
         }        
         "call" => {
-            wake_and_connect(&device_ip);
+            wake_and_connect(&device_ip, &keymap["power_on"]);
             let cmd = "am start -n com.nvidia.remotelocator/.ShieldRemoteLocatorActivity";
             adb(&device_ip, &["shell", cmd]);
             println!("Calling remote... beep ... beep!");
@@ -428,7 +499,7 @@ fn main() {
             match search_youtube(query, &youtube_api_key) {
                 Ok((video_url, title)) => {
                     println!("Playing YouTube video: {}", title);
-                    play_youtube_video(&device_ip, &video_url);
+                    play_youtube_video(&device_ip, &video_url, &keymap["power_on"]);
                 }
                 Err(e) => eprintln!("YouTube search failed: {}", e),
             }
@@ -454,8 +525,9 @@ fn main() {
         play_playlist(
             &device_ip,
             &format!("{}/playlist.m3u", webserver_url),
-        );
-        return;
+            &keymap["power_on"],
+       );
+       return;
     }
 
     // directory‑based types
@@ -521,6 +593,7 @@ fn main() {
         play_playlist(
             &device_ip,
             &format!("{}/playlist.m3u", webserver_url),
+            &keymap["power_on"],
         );
         return;
     }
@@ -555,6 +628,7 @@ fn main() {
         play_playlist(
             &device_ip,
             &format!("{}/playlist.m3u", webserver_url),
+            &keymap["power_on"],
         );
         return;
     }

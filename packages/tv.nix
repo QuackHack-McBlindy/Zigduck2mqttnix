@@ -10,8 +10,7 @@
   cargoToml = builtins.fromTOML (builtins.readFile (src + "/Cargo.toml"));
   version = cargoToml.package.version;
   desc = cargoToml.package.description;
-  
- 
+   
 in  
 rustPlatform.buildRustPackage {
   pname = "tv";

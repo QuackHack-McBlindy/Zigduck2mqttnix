@@ -162,9 +162,16 @@
     in "🦆 duck say ⮞ fuck ❌ Hue Sync Box references non-existent TV '${tv}'. Available TVs: ${toString availableTvs}";
   };
 
-  # --- New assertions ---
+  tvDefaultValidation =
+    let
+      defaultTVs = filterAttrs (_: tv: tv.isDefault or false) (config.house.tv or {});
+      defaultTVNames = attrNames defaultTVs;
+    in
+      [{
+        assertion = length defaultTVNames <= 1;
+        message = "🦆 duck say ⮞ fuck ❌ Only one TV can be set as default. Multiple default TVs found: ${toString defaultTVNames}";
+      }];
 
-  # 1. Validate that excluded devices in no.motion exist
   noMotionConfig = config.house.zigbee.no.motion or {};
   noMotionTrigger = noMotionConfig.trigger or {};
   noMotionAllLightsOff = noMotionTrigger.all.lights.off or {};
@@ -176,8 +183,6 @@
       message = "🦆 duck say ⮞ fuck ❌ No-motion automation excludes non-existent device '${deviceName}'";
     }) excludeDevices;
 
-  # 2. Compare no.motion timeout with motion.trigger.lights.duration
-  #    (no.motion.after is in minutes, multiply by 60 to compare with duration in seconds)
   noMotionTimeoutComparison =
     let
       noMotionEnabled = noMotionAllLightsOff.enable or false;
@@ -200,5 +205,6 @@ in
     ++ mqttTriggeredValidations
     ++ [ syncBoxTvValidation ]
     ++ excludedDevicesExistValidation
-    ++ noMotionTimeoutComparison;
+    ++ noMotionTimeoutComparison
+    ++ tvDefaultValidation;
 }

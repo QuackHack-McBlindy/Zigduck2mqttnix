@@ -29,6 +29,10 @@ let
       ${dev.room} = (acc.${dev.room} or []) ++ [ id ];
     }) {} zigbeeDevices;
 
+  rooms = builtins.listToAttrs (
+    lib.mapAttrsToList (name: value: { inherit name; value = value.ip; }) house.tv
+  );
+
   groupConfig = lib.mapAttrs' (room: ids: {
     name = room;
     value = {
@@ -171,8 +175,24 @@ let
 
   zigduckConfigFile = jsonFormat.generate "config.json" mainConfig;
 
-  allTVs = builtins.attrValues house.tv;
-  defaultIP = if allTVs == [] then "127.0.0.1" else (builtins.head allTVs).ip;
+  enabledTVs = lib.filterAttrs (_: tv: tv.enable) config.house.tv;
+
+  tvEntries = lib.mapAttrs (name: tv: {
+    ip = tv.ip;
+    room = tv.room;
+    isDefault = tv.isDefault or false;
+    keymap = tv.keymap;
+  }) enabledTVs;
+
+  defaultTVName =
+    let
+      defaults = lib.filterAttrs (_: tv: tv.isDefault) enabledTVs;
+    in
+      if defaults != {} then lib.head (lib.attrNames defaults)
+      else if enabledTVs != {} then lib.head (lib.attrNames enabledTVs)
+      else throw "No enabled TVs defined";
+
+        
   directories = {
     root        = house.media.root;
     tv          = house.media.tv;
@@ -184,14 +204,11 @@ let
     audiobook   = house.media.audiobooks;
   };
 
-  rooms = builtins.listToAttrs (
-    lib.mapAttrsToList (name: value: { inherit name; value = value.ip; }) house.tv
-  );
-
   tvDefaultsAttrSet = {
-    device_ip   = defaultIP;
+    device_ip = config.house.tv.${defaultTVName}.ip;
     inherit rooms;
     inherit directories;
+    tvs = tvEntries;
     webserver_file = if house.https.urlFile != null
                              then house.https.urlFile
                              else null;    
@@ -224,7 +241,6 @@ let
     tv_defaults_file = "/etc/zigduck/tv-defaults.json";
     media_root = house.media.root;
     playlist_file = house.media.root + "/playlist.m3u";
-    default_tv_ip = defaultIP;
     webserver_secret_file = if house.https.urlFile != null then house.https.urlFile else "";
   });
 
