@@ -649,7 +649,7 @@ impl ZigduckState {
         Fut: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>,
     {
         let mut executed = false;
-        let mut default_action = Some(default_action); // 🦆 NEW: Wrap in Option to control ownership
+        let mut default_action = Some(default_action);
 
         // 🦆 says ⮞ load room specific config
         if let Some(room_actions) = self.automations.dimmer_actions.get(room) {

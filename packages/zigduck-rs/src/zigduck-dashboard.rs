@@ -184,6 +184,7 @@ impl AlarmManager {
         let mut alarms = self.alarms.lock().unwrap();
         if let Some(pos) = alarms.iter().position(|a| a.id == id) {
             let alarm = alarms.remove(pos);
+            drop(alarms);
             self.save_to_file();
             self.condvar.notify_one();
             Ok(alarm)
@@ -197,6 +198,7 @@ impl AlarmManager {
         if let Some(alarm) = alarms.iter_mut().find(|a| a.id == id) {
             alarm.enabled = !alarm.enabled;
             let cloned = alarm.clone();
+            drop(alarms);
             self.save_to_file();
             self.condvar.notify_one();
             Ok(cloned)
@@ -1331,6 +1333,7 @@ fn start_alarm_thread(manager: Arc<AlarmManager>) {
                 }
             }
             if changed {
+                drop(alarms);
                 manager.save_to_file();
             }
         }
