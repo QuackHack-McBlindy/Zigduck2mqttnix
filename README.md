@@ -112,7 +112,8 @@ An optional **dashboard** page is generated from the defined Nix configuration t
 
 ## **Configuration**
 
-If anything about the configuration is unclear or if you have questions, a good starter point would be to study the [options](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/tree/main/options) which has detailed descriptions for every option.  
+If anything about the configuration is unclear or if you have questions,  
+a good starter point would be to study the [options](https://github.com/QuackHack-McBlindy/Zigduck2mqttnix/tree/main/options) which has detailed descriptions for every option.  
 
 <details><summary><strong>
 🛜 Zigbee configuration
