@@ -10,7 +10,15 @@ in {
   options.house.tv = mkOption {
     type = lib.types.attrsOf (lib.types.submodule {
       options = {
-        enable = lib.mkEnableOption "Enable this Android TV device";
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = ''
+            Whether to enable communication with this TV via ADB.
+            This requires that network debugging is turned on in the TV's developer options.
+            It is also strongly recommended to install the VLC Media Player application on the device.
+          '';
+        };
         room = lib.mkOption {
           type = lib.types.enum (lib.attrNames config.house.rooms);
           description = "Room where the TV is located";

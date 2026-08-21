@@ -68,7 +68,8 @@ struct Args {
         value_parser = [
             "on", "off", "up", "down", "next", "prev", "previous", "pause", "play",
             "call", "youtube", "tv", "movie", "podcast", "music", "musicvideo",
-            "audiobook", "jukebox", "song", "othervideo", "livetv", "play_playlist",
+            "audiobook", "jukebox", "song", "othervideo", "livetv",
+            "play_playlist", "favourites", "starred", "star", "like",
             "nav_up", "nav_down", "nav_left", "nav_right",
             "nav_select", "nav_menu", "nav_back",
             "channel_up", "channel_down", "nav_home", "nav_recents",
@@ -114,6 +115,7 @@ struct Config {
     max_items: usize,
     shuffle: bool,
     youtube_api_key_file: Option<String>,
+    favourites_file: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -372,7 +374,6 @@ fn play_youtube_video(ip: &str, video_url: &str, wake_key: &str) {
 
 fn get_current_activity(ip: &str) -> Option<String> {
     let out = adb_output_string(ip, &["shell", "dumpsys", "window", "windows"]);
-
     for line in out.lines() {
         if line.contains("mCurrentFocus") || line.contains("mFocusedApp") {
             if let Some(token) = line
@@ -389,6 +390,19 @@ fn get_current_activity(ip: &str) -> Option<String> {
     None
 }
 
+fn get_current_track(ip: &str) -> Option<String> {
+    let out = adb_output_string(ip, &["shell", "dumpsys", "media_session"]);
+    for line in out.lines() {
+        if let Some(pos) = line.find("description=") {
+            let rest = &line[pos + "description=".len()..];
+            let track = rest.split(',').next().unwrap_or(rest).trim();
+            if !track.is_empty() {
+                return Some(track.to_string());
+            }
+        }
+    }
+    None
+}
 
 fn adb_output_string(ip: &str, cmd: &[&str]) -> String {
     let output = Command::new("adb")
@@ -622,6 +636,12 @@ fn main() {
         .to_string_lossy()
         .replace(' ', "%20");
 
+    let favourites_rel = Path::new(&config.favourites_file)
+        .strip_prefix(media_root)
+        .expect("favourites_file must be inside the media root directory")
+        .to_string_lossy()
+        .replace(' ', "%20");
+
     let shuffle = args.shuffle.unwrap_or_else(|| {
         if args.no_shuffle {
             false
@@ -629,6 +649,7 @@ fn main() {
             false
         } else { config.shuffle }
     });
+    
     let max_items = args.max_items.unwrap_or(config.max_items);
 
     let typ = args.typ.to_lowercase();
@@ -732,6 +753,40 @@ fn main() {
             let url = webserver_url.as_ref().expect("Webserver URL is required. Set `config.house.https.urlFile` in configuration.nix");
             let playlist_url = format!("{}/{}", url, playlist_rel);
             play_playlist(&device_ip, &playlist_url, &keymap["power_on"]);
+            return;
+        }
+        "favourites" | "starred" => {
+            let url = webserver_url.as_ref()
+                .expect("Webserver URL is required. Set `config.house.https.urlFile` in configuration.nix");
+            let playlist_url = format!("{}/{}", url, favourites_rel);
+            play_playlist(&device_ip, &playlist_url, &keymap["power_on"]);
+            return;
+        }
+        "star" | "like" => {
+            let favourites_path = Path::new(&config.favourites_file);
+            let current_track = get_current_track(&device_ip);
+            match current_track {
+                Some(track) => {
+                    let existing = std::fs::read_to_string(favourites_path)
+                        .unwrap_or_default();
+
+                    if existing.lines().any(|line| line == track) {
+                        println!("Track already in favourites: {}", track);
+                    } else {
+                        let mut file = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(favourites_path)
+                            .expect("Failed to open favourites file for appending");
+
+                        use std::io::Write;
+                        writeln!(file, "{}", track)
+                            .expect("Failed to write to favourites file");
+                        println!("Added to favourites: {}", track);
+                    }
+                }
+                None => { eprintln!("Could not determine current track. Is something playing?"); }
+            }
             return;
         }
         "call" => {

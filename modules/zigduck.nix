@@ -215,6 +215,7 @@ let
                              then house.https.urlFile
                              else null;    
     playlist_file  = house.media.playlistFile;
+    favourites_file  = house.media.favouritesFile;    
     max_items      = 200;
     shuffle        = true;
     youtube_api_key_file = if house.media.youtubePasswordFile != null

@@ -22,12 +22,24 @@ in {
         };
 
         playlistFile = mkOption {
-          type = types.nullOr types.path;
+          type = types.path;
           default = config.house.media.root + "/playlist.m3u";
           example = "/Media/playlist.m3u";
           description = ''
             File path where the generated playlist will be written.
             This file is overwritten each time the TV controller creates a new playlist.
+            It must be writable by the user executing the tv command.
+            Should be inside a directory exposed by the web server.
+          '';  
+        };
+        
+        favouritesFile = mkOption {
+          type = types.path;
+          default = config.house.media.root + "/favourites.m3u";
+          example = "/Media/favourites.m3u";
+          description = ''
+            File path where the playlist for starred media will be written.
+            This is a Persistent playlist for the users favourite tracks.
             It must be writable by the user executing the tv command.
             Should be inside a directory exposed by the web server.
           '';  
