@@ -11,70 +11,132 @@ in {
     type = types.submodule {
       options = {
         root = mkOption {
-          type = types.nullOr types.path;
-          default = null;
-          description = "Root directory for all media";
+          type = types.path;
+          default = "/Media";
+          example = "/Media";
+          description = ''
+            Absolute path to the root media directory.
+            All other media directories should be subdirectories of this path.
+            The URL configured at `config.house.https.urlFile` should point to this directory as the root of a file server.
+          '';
         };
 
         playlistFile = mkOption {
           type = types.nullOr types.path;
           default = config.house.media.root + "/playlist.m3u";
-          description = "Filepath for default playlist";
+          example = "/Media/playlist.m3u";
+          description = ''
+            File path where the generated playlist will be written.
+            This file is overwritten each time the TV controller creates a new playlist.
+            It must be writable by the user executing the tv command.
+            Should be inside a directory exposed by the web server.
+          '';  
         };
 
         movies = mkOption {
           type = types.path;
           default = config.house.media.root + "/Movies";
-          description = "Movies directory";
+          example = "/Media/Movies";
+          description = ''
+            Directory containing movie folders.
+            Each movie should be in its own subdirectory, e.g.:
+              Movies/Some Movie (2020)/movie.mkv
+          '';
         };
 
         tv = mkOption {
           type = types.path;
           default = config.house.media.root + "/TV";
-          description = "TV shows directory";
+          example = "/Media/TV";
+          description = ''
+            Directory containing TV show folders.
+            Each show should be in its own subdirectory.
+            Inside each show folder, seasons are expected in folders like:
+              "Season 1", "Season 01", "S01", "s01"
+            Episode files go inside those season folders.
+          '';
         };
 
         music = mkOption {
           type = types.path;
           default = config.house.media.root + "/Music";
-          description = "Music directory";
+          example = "/Media/Music";
+          description = ''
+            Directory containing music. Can be flat or hierarchical.
+
+            For artist/album search (typ = "music"), each artist or album
+            should be in its own subdirectory.
+
+            For song search (typ = "song"), files are searched recursively
+            by filename with extensions: mp3, flac, m4a, wav.
+
+            For jukebox (typ = "jukebox"), all files under this directory
+            are shuffled and played.
+          '';
         };
 
         musicVideos = mkOption {
           type = types.path;
           default = config.house.media.root + "/Music_Videos";
-          description = "Music videos directory";
+          example = "/Media/MusicVideos";
+          description = ''
+            Directory containing music video folders.
+            Each music video should be in its own subdirectory.
+          '';
         };
 
         otherVideos = mkOption {
           type = types.path;
           default = config.house.media.root + "/Other_Videos";
-          description = "Other videos directory";
+          example = "/Media/Videos";
+          description = ''
+            Directory containing miscellaneous video files.
+            Videos are searched recursively by filename with extensions:
+              mp4, mkv, avi, mov
+            No folder structure requirement beyond being under this path.
+          '';
         };
 
         podcasts = mkOption {
           type = types.path;
           default = config.house.media.root + "/Podcasts";
-          description = "Podcasts directory";
+          example = "/Media/Podcasts";
+          description = ''
+            Directory containing podcast folders.
+            Each podcast should be in its own subdirectory.
+            Episodes are files inside those folders.
+          '';
         };
 
         audiobooks = mkOption {
           type = types.path;
           default = config.house.media.root + "/Audiobooks";
-          description = "Audiobook directory";
+          example = "/Media/Audiobooks";
+          description = ''
+            Directory containing audiobook folders.
+            Each audiobook should be in its own subdirectory.
+          '';
         };
 
         youtubePasswordFile = mkOption {
-          type = types.path;
+          type = types.nullOr types.path;
+          default = null;
           description = ''
-            Path to a file containing your YouTube Data API v3 key.
-            Obtain a key from https://console.cloud.google.com/apis/credentials.
+            Path to a file containing a YouTube Data API v3 key.
             The file should contain only the API key string (no extra whitespace).
+
+            To obtain a key:
+              1. Go to https://console.cloud.google.com/apis/credentials
+              2. Create a new API key.
+              4. Save the key to a file.
+
+            If set to null, YouTube playback is disabled.
           '';
+          example = "/run/secrets/youtube_api_key";
         };
       };
     };
     default = {};
     description = "Media library configuration";
 
-  };}    
+  };}

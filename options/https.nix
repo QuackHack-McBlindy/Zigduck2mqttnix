@@ -11,7 +11,9 @@ in {
     type = types.submodule {
       options = {
         urlFile = mkOption {
-          type = types.path;
+          type = types.nullOr types.path;
+          default = null;
+          example = "/run/secrets/url";
           description = ''
             Path to a file containing the public HTTPS URL used to access the
             media library.
@@ -30,7 +32,6 @@ in {
             DNS provider such as DuckDNS can be used if you do not already have
             a domain.
           '';
-          default = "";
         };
       };
     };

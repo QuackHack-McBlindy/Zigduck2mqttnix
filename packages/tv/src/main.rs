@@ -36,7 +36,7 @@ fn search_youtube(query: &str, api_key: &str) -> Result<(String, String), String
         .query(&[
             ("part", "snippet"),
             ("type", "video"),
-            ("maxResults", "1"),  // or "5" as in the original Bash
+            ("maxResults", "1"),
             ("q", query),
             ("key", api_key),
         ])
@@ -54,13 +54,8 @@ fn search_youtube(query: &str, api_key: &str) -> Result<(String, String), String
         if video_id.is_empty() {
             return Err("No video ID in response".to_string());
         }
-        Ok((
-            format!("https://www.youtube.com/watch?v={}", video_id),
-            title.clone(),
-        ))
-    } else {
-        Err("No results found".to_string())
-    }
+        Ok((format!("https://www.youtube.com/watch?v={}", video_id), title.clone()))
+    } else { Err("No results found".to_string()) }
 }
 
 
@@ -71,9 +66,9 @@ struct Args {
         short,
         long,
         value_parser = [
-            "on", "off", "up", "down", "next", "prev", "pause", "play",
+            "on", "off", "up", "down", "next", "prev", "previous", "pause", "play",
             "call", "youtube", "tv", "movie", "podcast", "music", "musicvideo",
-            "audiobook", "jukebox", "song", "othervideo",
+            "audiobook", "jukebox", "song", "othervideo", "livetv", "play_playlist",
             "nav_up", "nav_down", "nav_left", "nav_right",
             "nav_select", "nav_menu", "nav_back",
             "channel_up", "channel_down", "nav_home", "nav_recents",
@@ -96,6 +91,9 @@ struct Args {
     #[arg(long)]
     no_shuffle: bool,
 
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    shuffle: Option<bool>,
+
     #[arg(long)]
     max_items: Option<usize>,
 
@@ -111,11 +109,21 @@ struct Config {
     rooms: HashMap<String, String>,
     tvs: HashMap<String, TvConfig>,
     directories: HashMap<String, String>,
-    webserver_file: String,
+    webserver_file: Option<String>,
     playlist_file: String,
     max_items: usize,
     shuffle: bool,
-    youtube_api_key_file: String,
+    youtube_api_key_file: Option<String>,
+}
+
+#[derive(Deserialize, Clone)]
+struct ChannelConfig {
+    name: String,
+    #[serde(default)]
+    cmd: Option<String>,
+    #[serde(default)]
+    stream_url: Option<String>,
+    id: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -125,20 +133,37 @@ struct TvConfig {
     #[serde(default)]
     is_default: bool,
     keymap: HashMap<String, String>,
+    #[serde(default)]
+    apps: HashMap<String, String>,
+    #[serde(default)]
+    channels: HashMap<String, ChannelConfig>,
 }
 
 impl Config {
-    fn webserver(&self) -> String {
-        std::fs::read_to_string(&self.webserver_file)
-            .expect("Failed to read webserver URL file")
+    fn webserver(&self) -> Option<String> {
+        let path = self.webserver_file.as_ref()?;
+        let path = std::path::Path::new(path);
+        let url = std::fs::read_to_string(path)
+            .unwrap_or_else(|_| panic!("Failed to read webserver URL file: {}", path.display()))
             .trim()
-            .to_string()
+            .to_string();
+        Some(url)
+    }
+    
+    fn youtube_api_key(&self) -> Option<String> {
+        let path = self.youtube_api_key_file.as_ref()?;
+        let path = std::path::Path::new(path);
+        let key = std::fs::read_to_string(path)
+            .unwrap_or_else(|_| panic!("Failed to read YouTube API key file: {}", path.display()))
+            .trim()
+            .to_string();
+        Some(key)
     }
 }
 
 fn load_config(path: &Path) -> Config {
     let data = std::fs::read_to_string(path).expect("Failed to read config file");
-    serde_json::from_str(&data).expect("Invalid config JSON")
+    serde_json::from_str(&data).expect("Invalid JSON config. Please check your `config.house` Nix configuration.")
 }
 
 fn resolve_tv<'a>(args: &Args, config: &'a Config) -> &'a TvConfig {
@@ -170,12 +195,7 @@ fn adb(ip: &str, cmd: &[&str]) -> std::process::Output {
         .expect("adb not found or not executable");
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!(
-            "ADB command failed: adb -s {} {}\n{}",
-            ip,
-            cmd.join(" "),
-            stderr.trim()
-        );
+        eprintln!("ADB command failed: adb -s {} {}\n{}", ip, cmd.join(" "),  stderr.trim());
     }
     output
 }
@@ -206,7 +226,6 @@ fn play_playlist(ip: &str, playlist_url: &str, wake_key: &str) {
     adb(ip, &["shell", &cmd]);
 }
 
-// playlist generation
 fn generate_folder_playlist(
     folder: &Path,
     root_dir: &Path, 
@@ -229,7 +248,7 @@ fn generate_folder_playlist(
             let ext = e.path().extension().and_then(|s| s.to_str()).unwrap_or("");
             !matches!(
                 ext.to_lowercase().as_str(),
-                "nfo" | "jpg" | "jpeg" | "png" | "gif" | "m3u"
+                "nfo" | "jpg" | "jpeg" | "png" | "gif" | "m3u" | "txt" | "db" | "log" | "torrent"
             )
         })
         .map(|e| e.path().to_owned())
@@ -241,7 +260,7 @@ fn generate_folder_playlist(
     files.truncate(max_items);
 
     let mut playlist = String::from("#EXTM3U\n");
-    playlist.push_str(&format!("{}/intro.mp4\n", webserver));
+    playlist.push_str("https://raw.githubusercontent.com/QuackHack-McBlindy/share/main/intro.mp4\n");
 
     for f in &files {
         let rel = f.strip_prefix(root_dir).unwrap();
@@ -254,7 +273,7 @@ fn generate_folder_playlist(
 }
 
 
-// fuzzy match a directory name  (barely-fuzzy)
+// fuzzy match a directory name (barely-fuzzy)
 fn fuzzy_match_dir(base: &Path, query: &str) -> Option<String> {
     if !base.is_dir() {
         return None;
@@ -333,6 +352,7 @@ fn make_playlist_from_files(
     let web_folder = base.file_name().unwrap().to_str().unwrap();
 
     let mut playlist = String::from("#EXTM3U\n");
+    playlist.push_str("https://raw.githubusercontent.com/QuackHack-McBlindy/share/main/intro.mp4\n");
     for f in files {
         let rel = f.strip_prefix(base).unwrap();
         let encoded = rel.to_string_lossy().replace(' ', "%20");
@@ -340,7 +360,6 @@ fn make_playlist_from_files(
     }
     std::fs::write(playlist_path, playlist).expect("Failed to write playlist");
 }
-
 
 fn play_youtube_video(ip: &str, video_url: &str, wake_key: &str) {
     wake_and_connect(ip, wake_key);
@@ -350,6 +369,231 @@ fn play_youtube_video(ip: &str, video_url: &str, wake_key: &str) {
     );
     adb(ip, &["shell", &cmd]);
 }
+
+fn get_current_activity(ip: &str) -> Option<String> {
+    let out = adb_output_string(ip, &["shell", "dumpsys", "window", "windows"]);
+
+    for line in out.lines() {
+        if line.contains("mCurrentFocus") || line.contains("mFocusedApp") {
+            if let Some(token) = line
+                .split_whitespace()
+                .last()
+                .map(|t| t.trim_end_matches('}'))
+            {
+                if token.contains('/') {
+                    return Some(token.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+
+fn adb_output_string(ip: &str, cmd: &[&str]) -> String {
+    let output = Command::new("adb")
+        .args(["-s", ip])
+        .args(cmd)
+        .output()
+        .expect("adb not found or not executable");
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+fn open_app(ip: &str, apps: &HashMap<String, String>, app: &str) -> Result<(), String> {
+    let target_activity = apps
+        .get(app)
+        .ok_or_else(|| format!("App '{}' not found in config", app))?;
+
+    if let Some(current) = get_current_activity(ip) {
+        if current.as_str() == target_activity.as_str() {
+            println!("App {} is already active: {}", app, current);
+            return Ok(());
+        }
+    }
+
+    println!("Opening app {}: {}", app, target_activity);
+    let cmd = format!("am start -n {}", target_activity);
+    let output = adb(ip, &["shell", &cmd]);
+    if output.status.success() {
+        Ok(())
+    } else { Err(format!("Failed to open app {}", app)) }
+}
+
+fn control_device(
+    ip: &str,
+    keymap: &HashMap<String, String>,
+    apps: &HashMap<String, String>,
+    action: &str,
+) -> Result<(), String> {
+    if let Some(app) = action.strip_prefix("open_") {
+        return open_app(ip, apps, app);
+    }
+
+    if action == "find_remote" {
+        let cmd = "am start -n com.nvidia.remotelocator/.ShieldRemoteLocatorActivity";
+        let output = adb(ip, &["shell", cmd]);
+        return if output.status.success() {
+            Ok(())
+        } else { Err("find_remote failed".to_string()) };
+    }
+
+    let key_name = match action {
+        "power_on" => "power_on",
+        "power_off" => "power_off",
+        "play_pause" => "play_pause",
+        "next" => "next",
+        "previous" => "previous",
+        "volume_up" => "volume_up",
+        "volume_down" => "volume_down",
+        "channel_up" => "channel_up",
+        "channel_down" => "channel_down",
+        "nav_up" => "nav_up",
+        "nav_down" => "nav_down",
+        "nav_left" => "nav_left",
+        "nav_right" => "nav_right",
+        "nav_select" => "nav_select",
+        "nav_back" => "nav_back",
+        "nav_home" => "nav_home",
+        "nav_menu" => "nav_menu",
+        "nav_recents" => "nav_recents",
+        _ => return Err(format!("Unknown action: {}", action)),
+    };
+
+    let keycode = keymap
+        .get(key_name)
+        .ok_or_else(|| format!("Keymap missing '{}' for action '{}'", key_name, action))?;
+    adb_keyevent(ip, keycode);
+    Ok(())
+}
+
+fn start_channel(ip: &str, channel_number: &str) {
+    adb(ip, &["shell", "input", "keyevent", "KEYCODE_CLEAR"]);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    for ch in channel_number.chars() {
+        let digit = ch.to_string();
+        let digit_str = digit.as_str();
+        adb(ip, &["shell", "input", "text", digit_str]);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    adb(ip, &["shell", "input", "keyevent", "KEYCODE_ENTER"]);
+}
+
+fn execute_channel_command(
+    ip: &str,
+    keymap: &HashMap<String, String>,
+    apps: &HashMap<String, String>,
+    cmd: &str,
+) {
+    for raw_part in cmd.split("&&") {
+        let part = raw_part.trim();
+        if part.is_empty() {
+            continue;
+        }
+
+        if let Some(secs) = part.strip_prefix("wait ") {
+            if let Ok(s) = secs.trim().parse::<u64>() {
+                println!("Waiting {} seconds", s);
+                std::thread::sleep(std::time::Duration::from_secs(s));
+            }
+        } else if let Some(channel_number) = part.strip_prefix("start_channel_") {
+            if channel_number.chars().all(|c| c.is_ascii_digit()) {
+                println!("Starting channel {}", channel_number);
+                start_channel(ip, channel_number);
+            }
+        } else if part.starts_with("open_")
+            || part.starts_with("nav_")
+            || [
+                "power_on",
+                "power_off",
+                "play_pause",
+                "next",
+                "previous",
+                "volume_up",
+                "volume_down",
+                "channel_up",
+                "channel_down",
+                "nav_home",
+                "nav_menu",
+                "nav_back",
+                "nav_recents",
+                "find_remote",
+            ]
+            .contains(&part)
+        {
+            if let Err(e) = control_device(ip, keymap, apps, part) {
+                eprintln!("Error executing '{}': {}", part, e);
+            }
+        } else { eprintln!("Unknown channel command: {}", part); }
+    }
+}
+
+fn play_livetv_channel(
+    ip: &str,
+    keymap: &HashMap<String, String>,
+    apps: &HashMap<String, String>,
+    channel_id: &str,
+    channel: &ChannelConfig,
+) {
+    println!("Playing channel {}: {}", channel_id, channel.name);
+
+    let _ = control_device(ip, keymap, apps, "power_on");
+    std::thread::sleep(std::time::Duration::from_secs(5));
+
+    if let Some(cmd) = channel.cmd.as_deref() {
+        if !cmd.is_empty() {
+            println!("Using custom channel command: {}", cmd);
+            execute_channel_command(ip, keymap, apps, cmd);
+            return;
+        }
+    }
+
+    if let Some(stream_url) = channel.stream_url.as_deref() {
+        if !stream_url.is_empty() {
+            println!("Using stream URL: {}", stream_url);
+            let cmd = format!("am start -a android.intent.action.VIEW -d \"{}\"", stream_url);
+            adb(ip, &["shell", &cmd]);
+            return;
+        }
+    }
+
+    if let Some(id) = channel.id {
+        println!("Using numeric channel ID: {}", id);
+        start_channel(ip, &id.to_string());
+        return;
+    }
+
+    println!("Using default channel number input");
+    start_channel(ip, channel_id);
+}
+
+fn resolve_channel(
+    channels: &HashMap<String, ChannelConfig>,
+    search: Option<&str>,
+) -> Option<(String, ChannelConfig)> {
+    if let Some(search) = search {
+        if let Some(channel) = channels.get(search) {
+            return Some((search.to_string(), channel.clone()));
+        }
+
+        let lower = search.to_lowercase();
+        for (id, channel) in channels {
+            if channel.name.to_lowercase().contains(&lower) {
+                return Some((id.clone(), channel.clone()));
+            }
+        }
+    } else {
+        println!("Available channels:");
+        for (id, channel) in channels {
+            println!("  {}: {}", id, channel.name);
+        }
+    }
+    None
+}
+
+
 
 // MAIN
 fn main() {
@@ -361,20 +605,31 @@ fn main() {
         }
     }
 
-
     let config = load_config(&args.config);
     let tv = resolve_tv(&args, &config);
     let device_ip = &tv.ip;
     let keymap = &tv.keymap;
-    let webserver_url = config.webserver(); 
+    let webserver_url = config.webserver();
+    let youtube_api_key = config.youtube_api_key();
+    let media_root = Path::new(
+        config.directories.get("root")
+            .expect("Media root directory missing in config")
+    );
 
-    let shuffle = !args.no_shuffle && config.shuffle;
+    let playlist_rel = Path::new(&config.playlist_file)
+        .strip_prefix(media_root)
+        .expect("playlist_file must be inside the media root directory")
+        .to_string_lossy()
+        .replace(' ', "%20");
+
+    let shuffle = args.shuffle.unwrap_or_else(|| {
+        if args.no_shuffle {
+            false
+        } else if args.season.is_some() {
+            false
+        } else { config.shuffle }
+    });
     let max_items = args.max_items.unwrap_or(config.max_items);
-
-    let youtube_api_key = std::fs::read_to_string(&config.youtube_api_key_file)
-        .expect("Failed to read YouTube API key")
-        .trim()
-        .to_string();
 
     let typ = args.typ.to_lowercase();
 
@@ -474,13 +729,11 @@ fn main() {
             return;
         }
         "play_playlist" => {
-            play_playlist(
-                &device_ip,
-                &format!("{}/playlist.m3u", webserver_url),
-                &keymap["power_on"],
-            );
+            let url = webserver_url.as_ref().expect("Webserver URL is required. Set `config.house.https.urlFile` in configuration.nix");
+            let playlist_url = format!("{}/{}", url, playlist_rel);
+            play_playlist(&device_ip, &playlist_url, &keymap["power_on"]);
             return;
-        }        
+        }
         "call" => {
             wake_and_connect(&device_ip, &keymap["power_on"]);
             let cmd = "am start -n com.nvidia.remotelocator/.ShieldRemoteLocatorActivity";
@@ -496,7 +749,8 @@ fn main() {
                     return;
                 }
             };
-            match search_youtube(query, &youtube_api_key) {
+            let api_key = youtube_api_key.as_ref().expect("YouTube API key is required for YouTube search. Set `config.house.media.youtubePasswordFile` in configuration.nix");
+            match search_youtube(query, api_key) {
                 Ok((video_url, title)) => {
                     println!("Playing YouTube video: {}", title);
                     play_youtube_video(&device_ip, &video_url, &keymap["power_on"]);
@@ -506,29 +760,40 @@ fn main() {
             return;
         }
         
-
         _ => {}
+    }
+
+    if typ == "livetv" {
+        let tv = resolve_tv(&args, &config);
+        let device_ip = &tv.ip;
+        let keymap = &tv.keymap;
+        let apps = &tv.apps;
+        let channels = &tv.channels;
+
+        if let Some((channel_id, channel)) = resolve_channel(channels, args.search.as_deref()) {
+            play_livetv_channel(device_ip, keymap, apps, &channel_id, &channel);
+        } else { eprintln!("Channel not found or no channel specified"); }
+        return;
     }
 
     // jukebox: all music shuffled
     if typ == "jukebox" {
+        let url = webserver_url.as_ref().expect("Webserver URL is required. Set `config.house.https.urlFile` in configuration.nix");
         let music_dir = config.directories.get("music").expect("music dir missing");
         let path = Path::new(music_dir);
         generate_folder_playlist(
             path,
             path,
-            &webserver_url,
+            url,
             true,
             max_items,
             Path::new(&config.playlist_file),
         );
-        play_playlist(
-            &device_ip,
-            &format!("{}/playlist.m3u", webserver_url),
-            &keymap["power_on"],
-       );
-       return;
+        let playlist_url = format!("{}/{}", url, playlist_rel);
+        play_playlist(&device_ip, &playlist_url, &keymap["power_on"]);
+        return;
     }
+
 
     // directory‑based types
     let dir_types = ["tv", "movie", "podcast", "music", "musicvideo", "audiobook"];
@@ -574,27 +839,22 @@ fn main() {
             if let Some(dir) = season_dir {
                 target_path = dir;
             } else {
-                eprintln!(
-                    "Season folder not found in '{}'",
-                    target_path.display()
-                );
+                eprintln!("Season folder not found in '{}'", target_path.display());
                 return;
             }
         }
 
+        let url = webserver_url.as_ref().expect("Webserver URL is required. Set `config.house.https.urlFile` in configuration.nix");
         generate_folder_playlist(
             &target_path,
-            &base, 
-            &webserver_url,
+            &base,
+            url,
             shuffle,
             max_items,
             Path::new(&config.playlist_file),
         );
-        play_playlist(
-            &device_ip,
-            &format!("{}/playlist.m3u", webserver_url),
-            &keymap["power_on"],
-        );
+        let playlist_url = format!("{}/{}", url, playlist_rel);
+        play_playlist(&device_ip, &playlist_url, &keymap["power_on"]);
         return;
     }
 
@@ -602,9 +862,7 @@ fn main() {
     if typ == "song" || typ == "othervideo" {
         let (dir_key, exts): (&str, &[&str]) = if typ == "song" {
             ("music", &["mp3", "flac", "m4a", "wav"][..])
-        } else {
-            ("othervideo", &["mp4", "mkv", "avi", "mov"][..])
-        };
+        } else { ("othervideo", &["mp4", "mkv", "avi", "mov"][..]) };
 
         let base = config.directories.get(dir_key).unwrap();
         let base_path = Path::new(base);
@@ -619,20 +877,17 @@ fn main() {
             return;
         }
         let files: Vec<PathBuf> = matches.into_iter().map(|(_, p)| p).collect();
+        let url = webserver_url.as_ref().expect("Webserver URL is required. Set `config.house.https.urlFile` in configuration.nix");
         make_playlist_from_files(
             &files,
             base_path,
-            &webserver_url,
+            url,
             Path::new(&config.playlist_file),
         );
-        play_playlist(
-            &device_ip,
-            &format!("{}/playlist.m3u", webserver_url),
-            &keymap["power_on"],
-        );
+        let playlist_url = format!("{}/{}", url, playlist_rel);
+        play_playlist(&device_ip, &playlist_url, &keymap["power_on"]);
         return;
     }
 
     eprintln!("Unsupported type: {}", typ);
 }
-

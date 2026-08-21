@@ -172,6 +172,14 @@
         message = "🦆 duck say ⮞ fuck ❌ Only one TV can be set as default. Multiple default TVs found: ${toString defaultTVNames}";
       }];
 
+  tvWebserverValidation =
+    let
+      enabledTVs = filterAttrs (_: tv: tv.enable or false) (config.house.tv or {});
+    in {
+      assertion = enabledTVs == {} || (config.house.https.urlFile or null) != null;
+      message = "🦆 duck say ⮞ fuck ❌ TVs are enabled but `house.https.urlFile` is not set. The TV controller requires a webserver URL file for media playback. Set `house.https.urlFile` to a file containing the base URL of your HTTPS media server.";
+    };
+
   noMotionConfig = config.house.zigbee.no.motion or {};
   noMotionTrigger = noMotionConfig.trigger or {};
   noMotionAllLightsOff = noMotionTrigger.all.lights.off or {};
@@ -204,6 +212,7 @@ in
     ++ mqttValidations
     ++ mqttTriggeredValidations
     ++ [ syncBoxTvValidation ]
+    ++ [ tvWebserverValidation ]
     ++ excludedDevicesExistValidation
     ++ noMotionTimeoutComparison
     ++ tvDefaultValidation;

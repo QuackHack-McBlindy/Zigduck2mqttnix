@@ -537,12 +537,28 @@ Define a dimmer, or motion sensor and those devices would default to control it'
     };
 
 
-    # tv devices  
+    # tv devices
     tv = {
       "my-tv" = {
         ip = "192.168.1.123";
         room = "bedroom";
-      };  
+        # applications (activity name)
+        apps = {
+          telenor = "se.telenor.stream/.MainActivity";
+          tv4 = "se.tv4.tv4playtab/se.tv4.tv4play.ui.mobile.main.BottomNavigationActivity";
+        };  
+        channels = {     
+          "1" = {
+            name = "SVT1";
+            id = 1;
+            # or use a direct stream url
+            # stream_url = "https://url.com/";
+            # command to start a application based channel
+            cmd = "open_telenor && wait 5 && start_channel_1";     
+          };
+          # ...
+        };  
+      };    
       "my-other-tv" = {
         ip = "192.168.1.124";
         room = "livingroom";
@@ -808,12 +824,13 @@ Cast media to an Android TV device via ADB
 Usage: tv [OPTIONS] --typ <TYP>
 
 Options:
-  -t, --typ <TYP>              [possible values: on, off, up, down, next, prev, pause, play, call, youtube, tv, movie, podcast, music, musicvideo, audiobook, jukebox, song, othervideo]
+  -t, --typ <TYP>              [possible values: on, off, up, down, next, prev, previous, pause, play, call, youtube, tv, movie, podcast, music, musicvideo, audiobook, jukebox, song, othervideo, livetv, play_playlist, nav_up, nav_down, nav_left, nav_right, nav_select, nav_menu, nav_back, channel_up, channel_down, nav_home, nav_recents]
   -s, --search <SEARCH>        
       --season <SEASON>        
       --room <ROOM>            
       --ip <IP>                
       --no-shuffle             
+      --shuffle                
       --max-items <MAX_ITEMS>  
       --config <CONFIG>        [default: /etc/zigduck/tv-defaults.json]
   -h, --help                   Print help

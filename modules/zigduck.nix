@@ -180,8 +180,10 @@ let
   tvEntries = lib.mapAttrs (name: tv: {
     ip = tv.ip;
     room = tv.room;
-    isDefault = tv.isDefault or false;
+    is_default = tv.isDefault or false;
     keymap = tv.keymap;
+    apps = tv.apps or {};
+    channels = tv.channels or {};
   }) enabledTVs;
 
   defaultTVName =
@@ -212,7 +214,7 @@ let
     webserver_file = if house.https.urlFile != null
                              then house.https.urlFile
                              else null;    
-    playlist_file  = house.media.root + "/playlist.m3u";
+    playlist_file  = house.media.playlistFile;
     max_items      = 200;
     shuffle        = true;
     youtube_api_key_file = if house.media.youtubePasswordFile != null

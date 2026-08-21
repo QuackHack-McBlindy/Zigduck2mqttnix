@@ -10,10 +10,10 @@ in {
   options.house.tv = mkOption {
     type = lib.types.attrsOf (lib.types.submodule {
       options = {
-        enable = lib.mkEnableOption "Enable this Android TVOS device";
+        enable = lib.mkEnableOption "Enable this Android TV device";
         room = lib.mkOption {
-          type = lib.types.strMatching (lib.concatStringsSep "|" (lib.attrNames config.house.rooms));
-          description = "Room where TV is located";
+          type = lib.types.enum (lib.attrNames config.house.rooms);
+          description = "Room where the TV is located";
         };
         ip = lib.mkOption {
           type = lib.types.str;
@@ -45,92 +45,92 @@ in {
               power_off = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_SLEEP";
-                description = "Keycode for turning the TV off";
+                description = "Android Keycode for turning the TV off";
               };
               power_on = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_WAKEUP";
-                description = "Keycode for turning the TV on";
+                description = "Android Keycode for turning the TV on";
               };
               play_pause = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_MEDIA_PLAY_PAUSE";
-                description = "Keycode for play/pause";
+                description = "Android Keycode for play/pause";
               };
               next = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_MEDIA_NEXT";
-                description = "Keycode for next media";
+                description = "Android Keycode for next media";
               };
               previous = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_MEDIA_PREVIOUS";
-                description = "Keycode for previous media";
+                description = "Android Keycode for previous media";
               };
               volume_up = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_VOLUME_UP";
-                description = "Keycode for volume up";
+                description = "Android Keycode for volume up";
               };
               volume_down = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_VOLUME_DOWN";
-                description = "Keycode for volume down";
+                description = "Android Keycode for volume down";
               };
               channel_up = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_CHANNEL_UP";
-                description = "Keycode for channel up";
+                description = "Android Keycode for channel up";
               };
               channel_down = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_CHANNEL_DOWN";
-                description = "Keycode for channel down";
+                description = "Android Keycode for channel down";
               };
               nav_up = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_DPAD_UP";
-                description = "Keycode for navigation up";
+                description = "Android Keycode for navigation up";
               };
               nav_down = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_DPAD_DOWN";
-                description = "Keycode for navigation down";
+                description = "Android Keycode for navigation down";
               };
               nav_left = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_DPAD_LEFT";
-                description = "Keycode for navigation left";
+                description = "Android Keycode for navigation left";
               };
               nav_right = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_DPAD_RIGHT";
-                description = "Keycode for navigation right";
+                description = "Android Keycode for navigation right";
               };
               nav_select = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_DPAD_CENTER";
-                description = "Keycode for navigation select/enter";
+                description = "Android Keycode for navigation select/enter";
               };
               nav_back = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_BACK";
-                description = "Keycode for back navigation";
+                description = "Android Keycode for back navigation";
               };
               nav_home = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_HOME";
-                description = "Keycode for home";
+                description = "Android Keycode for home";
               };
               nav_menu = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_MENU";
-                description = "Keycode for menu";
+                description = "Android Keycode for menu";
               };
               nav_recents = lib.mkOption {
                 type = lib.types.str;
                 default = "KEYCODE_APP_SWITCH";
-                description = "Keycode for recent apps";
+                description = "Android Keycode for recent apps";
               };
             };
           };
@@ -148,38 +148,39 @@ in {
               };
               icon = lib.mkOption {
                 type = types.nullOr types.path;
-                description = "Optional file path for channel icon used for the generated TV-guide web frontend";
+                description = "Optional file path for channel icon used on dashboard frontend";
                 default = null;
               };
               id = lib.mkOption {
                 type = lib.types.nullOr lib.types.int;
                 default = null;
-                description = "Channel ID number, when set will send defined value as ADB channel command.";
+                description = "Numeric channel ID used when no `cmd` or `stream_url` is provided.";
               };
               cmd = lib.mkOption {
                 type = lib.types.str;
-                description = "Sequence of ADB commands to launch channel. Seperated with && (Overrides ID)";
+                description = "Sequence of ADB commands to launch the channel, separated by `&&`. Overrides `stream_url` and `id`.";
                 default = "";
               };
               stream_url = lib.mkOption {
                 type = lib.types.str;
-                description = "Stream URL to send to device. (Overrides ID)";
+                description = "Direct stream URL to play on the device. Used when `cmd` is empty, overrides `id`.";
                 default = "";
               };
               scrape_url = lib.mkOption {
                 type = lib.types.str;
                 description = ''
-                  URL from which to scrape TV guide data for this channel.
-                  Only used as reference for user provided external script.
-                '';
+                  URL used by external tools to scrape TV guide data for this channel.
+                  Not used directly by the TV binary.
+                '';  
                 default = "";
               };
             };
           });
           description = "TV channel options";
+          default = {};
         };
       };
     });
     default = {};
 
-  };}    
+  };}
