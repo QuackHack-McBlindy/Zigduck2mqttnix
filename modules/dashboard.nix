@@ -2059,6 +2059,68 @@ let
     </html>       
   '';
 
+  dashboardConfig = lib.filterAttrs (_: card: card.enable) house.dashboard.statusCards;
+  dashboardConfigJSON = builtins.toJSON {
+      cards = lib.mapAttrs (name: card: {
+          enable = card.enable;
+          title = card.title;
+          icon = card.icon;
+          color = card.color;
+          on_click_action = card.on_click_action or [];
+      }) dashboardConfig;
+  };
+  dashboardConfigFile = pkgs.writeText "dashboard-config.json" dashboardConfigJSON;
+ 
+  statusCardsConfigJson = pkgs.writeText "status-cards-config.json" (builtins.toJSON {
+    cards = lib.mapAttrs (name: card: {
+      inherit name;
+      title = card.title;
+      group = card.group or "default";
+      icon = card.icon;
+      color = card.color;
+      theme = card.theme or "neon";
+      fileName = builtins.baseNameOf card.filePath;
+      jsonField = card.jsonField;
+      format = card.format;
+      detailsJsonField = card.detailsJsonField or null;
+      detailsFormat = card.detailsFormat or "";
+      details = card.details or "";
+      defaultDetails = card.defaultDetails or "";
+      defaultValue = card.defaultValue or "--";
+      chart = card.chart or false;
+      historyField = card.historyField or "history";
+      on_click_action = card.on_click_action or [];
+    }) (lib.filterAttrs (_: card: card.enable) house.dashboard.statusCards);
+    enabled = builtins.attrNames (lib.filterAttrs (_: card: card.enable) house.dashboard.statusCards);
+  });
+  
+  dashboardConfigFiles = let
+    enabledTVs = lib.filterAttrs (_: tv: tv.enable) house.tv;
+  
+    defaultTVName = let
+      defaults = lib.filterAttrs (_: tv: tv.isDefault) enabledTVs;
+    in
+      if defaults != {} then lib.head (lib.attrNames defaults)
+      else if enabledTVs != {} then lib.head (lib.attrNames enabledTVs)
+      else throw "No enabled TVs defined";
+  in
+    pkgs.writeText "dashboard-config.json" (builtins.toJSON {
+      dashboard_static_root = "${cfg.stateDir}/dashboard";
+      port = cfg.dashboard.port;
+      secure_cookies = cfg.dashboard.secure;
+      state_file = "${cfg.stateDir}/state.json";
+      alarms_file = "${cfg.stateDir}/alarms.json";
+      devices_file = "/etc/zigduck/devices.json";
+      scenes_file = "/etc/zigduck/scenes.json";
+      rooms_file = "/etc/zigduck/rooms.json";
+      types_file = "/etc/zigduck/types.json";
+      tv_defaults_file = "/etc/zigduck/tv-defaults.json";
+      media_root = house.media.root;
+      playlist_file = house.media.root + "/playlist.m3u";
+      webserver_secret_file = if house.https.urlFile != null then house.https.urlFile else "";
+      default_tv_ip = house.tv.${defaultTVName}.ip;
+    });
+
 in {
 
   system.activationScripts.zigduck-dashboard = {
@@ -2122,8 +2184,7 @@ in {
     '';
   };  
 
-  networking.firewall.allowedTCPPorts = [ cfg.dashboard.port ];
-  
+
   environment.etc."zigduck/index.html" = {
     text = indexHtml;
     mode = "0644";
@@ -2165,5 +2226,9 @@ in {
   environment.etc."zigduck/android-chrome-192x192.png".source = ./../static/icons/android-chrome-192x192.png;
 
   environment.etc."zigduck/site.webmanifest".source = iOSmanifest;
+
+  environment.etc."zigduck/dashboard.json".source = dashboardConfigFile;
+  environment.etc."zigduck/dashboard-config.json".source = dashboardConfigFiles;
+  environment.etc."zigduck/status-cards-config.json".source = statusCardsConfigJson;
 
   }

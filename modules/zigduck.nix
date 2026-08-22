@@ -10,8 +10,10 @@ let
   house = config.house;
   zigduckPkgs = self.inputs.zigduck2mqttnix.packages.${pkgs.system};
 
-  zigbeeDevices = house.zigbee.devices;
-  
+  format = pkgs.formats.yaml { };
+  configFile = format.generate "zigbee2mqtt.yaml" house.zigbee.settings;
+
+  zigbeeDevices = house.zigbee.devices;  
   scenes = house.zigbee.scenes;
   sceneConfig = pkgs.writeText "scene-config.json" (builtins.toJSON {
     scenes = scenes;
@@ -24,14 +26,8 @@ let
     }) scenes
   ));
         
-  byRoom = lib.foldlAttrs (acc: id: dev:
-    lib.recursiveUpdate acc {
-      ${dev.room} = (acc.${dev.room} or []) ++ [ id ];
-    }) {} zigbeeDevices;
-
-  rooms = builtins.listToAttrs (
-    lib.mapAttrsToList (name: value: { inherit name; value = value.ip; }) house.tv
-  );
+  byRoom = lib.groupBy (id: zigbeeDevices.${id}.room) (lib.attrNames zigbeeDevices);
+  rooms = lib.mapAttrs (_: tv: tv.ip) house.tv;
 
   groupConfig = lib.mapAttrs' (room: ids: {
     name = room;
@@ -43,15 +39,6 @@ let
       ) ids;
     };
   }) byRoom;
-
-  format = pkgs.formats.yaml { };
-  configFile = format.generate "zigbee2mqtt.yaml" house.zigbee.settings;
- 
-  tvDevicesJson = pkgs.writeText "tv-devices.json" (builtins.toJSON house.tv);
-
-  ieeeToFriendly = lib.mapAttrs (ieee: dev: dev.friendly_name) zigbeeDevices;
-  mappingJSON = builtins.toJSON ieeeToFriendly;
-  mappingFile = pkgs.writeText "ieee-to-friendly.json" mappingJSON;
 
   deviceMeta = builtins.toJSON (
     lib.listToAttrs (
@@ -78,52 +65,11 @@ let
     )
   );
   
-  deviceConfig = 
-    let
-      filteredDevices = lib.filterAttrs (_: dev: dev.type != "hue_light") zigbeeDevices;
-    in
-    lib.mapAttrs (id: dev: {
-      friendly_name = dev.friendly_name;
-    }) filteredDevices;
-
+  deviceConfig = lib.mapAttrs (_: dev: { friendly_name = dev.friendly_name; })
+  (lib.filterAttrs (_: dev: dev.type != "hue_light") zigbeeDevices);
 
   automationsJSON = builtins.toJSON house.zigbee.automations;
   automationsFile = pkgs.writeText "automations.json" automationsJSON;
-
-  dashboardConfig = lib.filterAttrs (_: card: card.enable) house.dashboard.statusCards;
-  dashboardConfigJSON = builtins.toJSON {
-      cards = lib.mapAttrs (name: card: {
-          enable = card.enable;
-          title = card.title;
-          icon = card.icon;
-          color = card.color;
-          on_click_action = card.on_click_action or [];
-      }) dashboardConfig;
-  };
-  dashboardConfigFile = pkgs.writeText "dashboard-config.json" dashboardConfigJSON;
- 
-  statusCardsConfigJson = pkgs.writeText "status-cards-config.json" (builtins.toJSON {
-    cards = lib.mapAttrs (name: card: {
-      inherit name;
-      title = card.title;
-      group = card.group or "default";
-      icon = card.icon;
-      color = card.color;
-      theme = card.theme or "neon";
-      fileName = builtins.baseNameOf card.filePath;
-      jsonField = card.jsonField;
-      format = card.format;
-      detailsJsonField = card.detailsJsonField or null;
-      detailsFormat = card.detailsFormat or "";
-      details = card.details or "";
-      defaultDetails = card.defaultDetails or "";
-      defaultValue = card.defaultValue or "--";
-      chart = card.chart or false;
-      historyField = card.historyField or "history";
-      on_click_action = card.on_click_action or [];
-    }) (lib.filterAttrs (_: card: card.enable) house.dashboard.statusCards);
-    enabled = builtins.attrNames (lib.filterAttrs (_: card: card.enable) house.dashboard.statusCards);
-  });
 
   devices-json = pkgs.writeText "devices.json" deviceMeta;
   jsonFormat = pkgs.formats.json { };
@@ -175,146 +121,8 @@ let
 
   zigduckConfigFile = jsonFormat.generate "config.json" mainConfig;
 
-  enabledTVs = lib.filterAttrs (_: tv: tv.enable) config.house.tv;
-
-  tvEntries = lib.mapAttrs (name: tv: {
-    ip = tv.ip;
-    room = tv.room;
-    is_default = tv.isDefault or false;
-    keymap = tv.keymap;
-    apps = tv.apps or {};
-    channels = tv.channels or {};
-  }) enabledTVs;
-
-  defaultTVName =
-    let
-      defaults = lib.filterAttrs (_: tv: tv.isDefault) enabledTVs;
-    in
-      if defaults != {} then lib.head (lib.attrNames defaults)
-      else if enabledTVs != {} then lib.head (lib.attrNames enabledTVs)
-      else throw "No enabled TVs defined";
-
-        
-  directories = {
-    root        = house.media.root;
-    tv          = house.media.tv;
-    movie       = house.media.movies;
-    music       = house.media.music;
-    podcast     = house.media.podcasts;
-    musicvideo  = house.media.musicVideos;
-    othervideo  = house.media.otherVideos;
-    audiobook   = house.media.audiobooks;
-  };
-
-  tvDefaultsAttrSet = {
-    device_ip = config.house.tv.${defaultTVName}.ip;
-    inherit rooms;
-    inherit directories;
-    tvs = tvEntries;
-    webserver_file = if house.https.urlFile != null
-                             then house.https.urlFile
-                             else null;    
-    playlist_file  = house.media.playlistFile;
-    favourites_file  = house.media.favouritesFile;    
-    max_items      = 200;
-    shuffle        = true;
-    youtube_api_key_file = if house.media.youtubePasswordFile != null
-                             then house.media.youtubePasswordFile
-                             else null;
-    mqtt_password_file   = if house.zigbee.mosquitto != null
-                             then house.zigbee.mosquitto.passwordFile
-                             else null;
-  };
-
-  tvDefaultsJsonFile = pkgs.writeText "tv-ctl-defaults.json"
-    (builtins.toJSON tvDefaultsAttrSet);
-
-  dashboardConfigFiles = pkgs.writeText "dashboard-config.json" (builtins.toJSON {
-    dashboard_static_root = "${cfg.stateDir}/dashboard";
-    port = cfg.dashboard.port;
-    secure_cookies = cfg.dashboard.secure; 
-    state_file = "${cfg.stateDir}/state.json";
-    alarms_file = "${cfg.stateDir}/alarms.json";
-    health_dir = "${cfg.stateDir}/health";
-    uploads_dir = "${cfg.stateDir}/uploads";
-    devices_file = "/etc/zigduck/devices.json";
-    scenes_file = "/etc/zigduck/scenes.json";
-    rooms_file = "/etc/zigduck/rooms.json";
-    types_file = "/etc/zigduck/types.json";
-    tv_defaults_file = "/etc/zigduck/tv-defaults.json";
-    media_root = house.media.root;
-    playlist_file = house.media.root + "/playlist.m3u";
-    webserver_secret_file = if house.https.urlFile != null then house.https.urlFile else "";
-  });
-
 in {
-  imports = [ ./dashboard.nix ];
-
-  options.services.zigduck = {
-    enable = mkEnableOption "Zigduck";
-
-    # zigduck-rs service options
-    broker = mkOption {
-      type = types.str;
-      default = "127.0.0.1";
-      description = "MQTT broker hostname or IP address";
-    };
-
-    stateDir = mkOption {
-      type = types.path;
-      default = "/var/lib/zigduck";
-      description = "Directory for runtime state files";
-    };
-
-    debug = mkOption {
-      type = types.bool;
-      default = false;
-      description = "Enable debug logging (sets DEBUG=1)";
-    };
-
-    extraEnv = mkOption {
-      type = types.attrsOf types.str;
-      default = {};
-      description = "Extra environment variables to pass to the service";
-    };
-    
-    # zigduck-dashboard servoce options
-    dashboard = {
-      enable = mkEnableOption "Zigduck dashboard service";
-      host = mkOption {
-        type = types.str;
-        default = "0.0.0.0";
-        description = "Host to bind the webserver to";
-      };
-      port = mkOption {
-        type = types.port;
-        default = 13336;
-        description = "Port for the dashboard";
-      };
-      passwordFile = mkOption {
-        type = types.nullOr types.path;
-        default = null;
-        description = "Path to password file for API authentication (API_PASSWORD_FILE)";
-      };
-      secure = mkOption {
-        type = types.bool;
-        default = true;
-        description = "Whether to set the Secure flag on authentication cookies. Set to false when serving over plain HTTP.";
-      };
-    };
-
-
-    # zigduck-cli options
-    cli = {
-      enable = mkOption {
-        type = types.bool;
-        default = true;
-        description = "Whether to install the zg wrapper with default settings.";
-      };
-    };
-  };
-
-
+  imports = [ ./dashboard.nix ./tv.nix ];
   
   config = mkMerge [
     (mkIf cfg.enable {
@@ -325,9 +133,10 @@ in {
   
       networking.firewall.allowedTCPPorts =
         (map (l: l.port) config.services.mosquitto.listeners)
-        ++ [ 
-          house.zigbee.settings.frontend.port
-        ];
+        ++ lib.optionals cfg.dashboard.openFirewall [
+             house.zigbee.settings.frontend.port
+             cfg.dashboard.port
+           ];
     
       house.zigbee = {
         enable = true;
@@ -555,24 +364,15 @@ in {
       };
     })
 
-
     (mkIf (cfg.enable || cfg.cli.enable) {
-      environment.systemPackages = [
-        zigduckPkgs.zigduck-cli
-        zigduckPkgs.tv
-        self.inputs.yo.packages.x86_64-linux.yo-rs
-      ];
+      environment.systemPackages = [ zigduckPkgs.zigduck-cli ];
       
       environment.etc."zigduck/config.json".source = zigduckConfigFile;
       environment.etc."zigduck/devices.json".source = devices-json;
       environment.etc."zigduck/automations.json".source = automationsFile;
       environment.etc."zigduck/scenes.json".source = sceneConfig;
       environment.etc."zigduck/scenesCLI.json".source = sceneConfigCli;
-      environment.etc."zigduck/dashboard.json".source = dashboardConfigFile;
-      environment.etc."zigduck/dashboard-config.json".source = dashboardConfigFiles;
-      environment.etc."zigduck/status-cards-config.json".source = statusCardsConfigJson;
-      environment.etc."zigduck/tv-defaults.json".source = tvDefaultsJsonFile;
-      
+
       systemd.tmpfiles.rules = [
         "d ${cfg.stateDir} 0755 zigduck zigduck - -"
         #"d ${cfg.stateDir}/timers 0755 zigduck zigduck - -"

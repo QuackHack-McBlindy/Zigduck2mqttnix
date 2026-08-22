@@ -90,12 +90,16 @@ An optional **dashboard** page is generated from the defined Nix configuration t
 ```nix
     services.zigduck = {
       enable = true;
+      cli.enable = true;
       # for security reasons, it's highly recommended to serve the dashboard over a reverse proxy (Nginx, Caddy, Traefik, etc).  
-      dashboard.enable = true;
-      # set to false if using http (not recommended)
-      secure = true; 
-      dashboard.port = 13336;
-      dashboard.passwordFile = config.sops.secrets.dashboard.path;
+      dashboard = { 
+        enable = true;
+        # set to false if using http (not recommended)
+        secure = true;
+        port = 13336;
+        openFirewall = true;
+        passwordFile = config.sops.secrets.dashboard.path;
+      };  
       # if using `yo` and want to execute scripts from the `zigduck` user
       extraEnv.PATH = 
         "/run/current-system/sw/bin:"
@@ -688,7 +692,7 @@ Define a dimmer, or motion sensor and those devices would default to control it'
 
 The companion flake [yo](https://github.com/QuackHack-McBlindy/yo) is handling everything voice/natural language related, please see it's repo for installation instructions.  
 
-Once setup, copy the `./modules/voice` *(TBA)* directory into your NixOS configuration to be able to control your devices/rooms/media/timers/alarmsetc.
+Once setup, copy the `./modules/voice` directory into your NixOS configuration to be able to control your devices/rooms/media/timers/alarms etc.
 
 For `ESP32-S3` based yo clients - check out [yo-esp](https://github.com/QuackHack-McBlindy/yo-esp).   
 To write additional custom voice commands, please see [yo](https://github.com/QuackHack-McBlindy/yo) for instructions.   
